@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from "commander";
 import { loadConfig } from "../config/loader.js";
 import { interactiveCommand } from "./commands/interactive.js";

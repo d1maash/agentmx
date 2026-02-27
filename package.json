@@ -4,8 +4,8 @@
   "description": "Multi-agent CLI orchestrator for AI coding agents",
   "type": "module",
   "bin": {
-    "agentmux": "./dist/index.js",
-    "amux": "./dist/index.js"
+    "agentmux": "./dist/cli/index.js",
+    "amux": "./dist/cli/index.js"
   },
   "scripts": {
     "build": "tsup",
