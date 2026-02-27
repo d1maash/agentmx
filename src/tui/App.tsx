@@ -106,11 +106,18 @@ export function App({
     async (agentName: string) => {
       const agent = agentName.trim();
       if (adapters.has(agent)) {
-        await startAgent(agent, "interactive session");
+        const sessionId = await startAgent(agent, "interactive");
+        setShowNewAgent(false);
+        // Auto-focus on the new agent
+        if (sessionId && onFocus) {
+          // Small delay for PTY to initialize
+          setTimeout(() => onFocus(sessionId), 200);
+        }
+      } else {
+        setShowNewAgent(false);
       }
-      setShowNewAgent(false);
     },
-    [adapters, startAgent]
+    [adapters, startAgent, onFocus]
   );
 
   // Dismiss error on any key
