@@ -23,12 +23,10 @@ export async function interactiveCommand(config: Config): Promise<void> {
   let running = true;
 
   while (running) {
-    // Shared action — set by App callbacks
     let action: TUIAction | null = null;
 
     const onFocus = (sessionId: string) => {
       action = { type: "focus", sessionId };
-      // Unmount Ink to release the terminal
       inkInstance.unmount();
     };
 
@@ -37,6 +35,9 @@ export async function interactiveCommand(config: Config): Promise<void> {
       await pm.stopAll();
       inkInstance.unmount();
     };
+
+    // Enter alternate screen buffer for Ink TUI
+    process.stdout.write("\x1b[?1049h");
 
     const inkInstance = render(
       React.createElement(App, {
@@ -49,19 +50,22 @@ export async function interactiveCommand(config: Config): Promise<void> {
 
     await inkInstance.waitUntilExit();
 
+    // Leave alternate screen buffer
+    process.stdout.write("\x1b[?1049l");
+
     if (!action || action.type === "quit") {
       running = false;
       break;
     }
 
     if (action.type === "focus") {
-      // Enter raw passthrough — agent gets full terminal control
+      // Raw passthrough — agent gets full terminal, no alternate buffer
       const result = await rawPassthrough(pm, action.sessionId);
 
+      // After detach/exit, loop back to Ink TUI (which enters alt buffer)
       if (result === "exited") {
-        // Agent finished, loop back to TUI
+        // Agent done
       }
-      // "detach" — user pressed Ctrl+], loop back to TUI
     }
   }
 

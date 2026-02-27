@@ -15,20 +15,8 @@ export function useKeyboard({
   onKillAgent,
 }: UseKeyboardOptions) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [focused, setFocused] = useState(false);
 
   useInput((input, key) => {
-    // In focused mode: Escape exits focus, Ctrl+Q quits
-    if (focused) {
-      if (key.escape) {
-        setFocused(false);
-      }
-      if (input === "q" && key.ctrl) {
-        onQuit();
-      }
-      return;
-    }
-
     // Quick switch: number keys 1-9
     if (input >= "1" && input <= "9" && !key.ctrl && !key.meta) {
       const idx = parseInt(input, 10) - 1;
@@ -49,10 +37,8 @@ export function useKeyboard({
       setActiveIndex((i) => (i + 1) % Math.max(1, sessionsCount));
     }
 
-    // Focus on active agent (Enter)
-    if (key.return && sessionsCount > 0) {
-      setFocused(true);
-    }
+    // NOTE: Enter (focus) is handled by App.tsx directly because
+    // it triggers raw passthrough via onFocus callback
 
     // New agent (Ctrl+N)
     if (input === "n" && key.ctrl) {
@@ -64,7 +50,7 @@ export function useKeyboard({
       onKillAgent();
     }
 
-    // Quit (Ctrl+Q)
+    // Quit (Ctrl+Q or Ctrl+C)
     if (input === "q" && key.ctrl) {
       onQuit();
     }
@@ -79,5 +65,6 @@ export function useKeyboard({
     [sessionsCount]
   );
 
-  return { activeIndex, focused, setFocused, setActive };
+  // focused is always false in Ink TUI — real focus = raw passthrough
+  return { activeIndex, focused: false, setFocused: () => {}, setActive };
 }

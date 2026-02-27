@@ -4,7 +4,6 @@ import { AgentTabs } from "./components/AgentTabs.js";
 import { AgentView } from "./components/AgentView.js";
 import { SplitView } from "./components/SplitView.js";
 import { StatusBar } from "./components/StatusBar.js";
-import { InputBar } from "./components/InputBar.js";
 import { useAgents } from "./hooks/useAgents.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import type { ProcessManager } from "../core/process-manager.js";
@@ -17,6 +16,10 @@ interface AppProps {
   initialAgent?: string;
   parallelAgents?: string[];
   splitView?: boolean;
+  /** Called when user wants to focus on an agent (raw passthrough) */
+  onFocus?: (sessionId: string) => void;
+  /** Called when user wants to quit */
+  onQuit?: () => void;
 }
 
 export function App({
@@ -26,6 +29,8 @@ export function App({
   initialAgent,
   parallelAgents,
   splitView = false,
+  onFocus,
+  onQuit,
 }: AppProps) {
   const { exit } = useApp();
   const {
@@ -44,8 +49,12 @@ export function App({
   const { activeIndex, focused, setFocused } = useKeyboard({
     sessionsCount: sessions.length,
     onQuit: async () => {
-      await processManager.stopAll();
-      exit();
+      if (onQuit) {
+        onQuit();
+      } else {
+        await processManager.stopAll();
+        exit();
+      }
     },
     onNewAgent: () => setShowNewAgent(true),
     onKillAgent: async () => {
@@ -78,6 +87,21 @@ export function App({
     startAgent,
   ]);
 
+  // Handle Enter to focus — trigger raw passthrough
+  useInput((_input, key) => {
+    if (
+      key.return &&
+      !showNewAgent &&
+      sessions.length > 0 &&
+      !focused
+    ) {
+      const session = sessions[activeIndex];
+      if (session && onFocus) {
+        onFocus(session.id);
+      }
+    }
+  });
+
   const handleNewAgent = useCallback(
     async (agentName: string) => {
       const agent = agentName.trim();
@@ -103,9 +127,7 @@ export function App({
     return (
       <Box flexDirection="column" padding={1}>
         <Text bold>Start new agent</Text>
-        <Text>
-          Available: {availableAgents.join(", ")}
-        </Text>
+        <Text>Available: {availableAgents.join(", ")}</Text>
         <Box marginTop={1}>
           <NewAgentPrompt
             agents={availableAgents}
@@ -122,7 +144,7 @@ export function App({
     return (
       <Box flexDirection="column" height="100%">
         <SplitView sessions={sessions} direction={config.ui.split_view} />
-        <StatusBar session={activeSession} focused={focused} />
+        <StatusBar session={activeSession} focused={false} />
       </Box>
     );
   }
@@ -143,14 +165,7 @@ export function App({
       <Box borderStyle="single" borderColor="gray" flexGrow={1}>
         <AgentView session={activeSession} />
       </Box>
-      <StatusBar session={activeSession} focused={focused} />
-      {activeSession && (
-        <InputBar
-          agentName={activeSession.displayName}
-          focused={focused}
-          onSubmit={(text) => sendInput(activeSession.id, text)}
-        />
-      )}
+      <StatusBar session={activeSession} focused={false} />
     </Box>
   );
 }

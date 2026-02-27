@@ -3,9 +3,10 @@ import type { ProcessManager } from "../core/process-manager.js";
 /**
  * Raw terminal passthrough mode.
  *
- * Connects stdin/stdout directly to the agent's PTY,
- * preserving the agent's native terminal UI (colors, box-drawing, cursor, etc.)
+ * Directly connects stdin/stdout to the agent's PTY,
+ * preserving the agent's native terminal UI perfectly.
  *
+ * The agent controls the entire screen — AgentMux is invisible.
  * Exit: Ctrl+] (GS, 0x1D) — returns to AgentMux TUI.
  */
 export async function rawPassthrough(
@@ -15,86 +16,95 @@ export async function rawPassthrough(
   const agentProcess = pm.get(sessionId);
   if (!agentProcess) return "exited";
 
-  const session = pm.getSession(sessionId);
-  const agentName = session?.agentName ?? "agent";
-
-  // Clear screen and show hint bar
-  process.stdout.write("\x1b[2J\x1b[H"); // clear screen, cursor home
-  process.stdout.write(
-    `\x1b[48;5;236m\x1b[37m AgentMux \x1b[1m| ${agentName} \x1b[22m| Ctrl+] to detach \x1b[0m\r\n`
-  );
-
-  // Resize PTY to match terminal
-  const cols = process.stdout.columns || 120;
-  const rows = (process.stdout.rows || 40) - 1; // -1 for the hint bar
-  agentProcess.resize(cols, rows);
-
-  // Replay entire buffer so user sees full agent UI
-  for (const chunk of agentProcess.buffer) {
-    process.stdout.write(chunk.data);
+  // If agent already done, don't enter passthrough
+  if (agentProcess.status === "done" || agentProcess.status === "error") {
+    return "exited";
   }
 
-  // Enter raw mode
-  const wasRaw = process.stdin.isRaw;
+  // Clear screen
+  process.stdout.write("\x1b[2J\x1b[H");
+
+  // Resize PTY to match full terminal
+  const cols = process.stdout.columns || 120;
+  const rows = process.stdout.rows || 40;
+  agentProcess.resize(cols, rows);
+
+  // Small delay then resize again to force agent redraw
+  await new Promise((r) => setTimeout(r, 100));
+  agentProcess.resize(cols, rows);
+
+  // Set stdin to raw mode so ALL keystrokes pass through
+  // (arrows, Enter, Escape, Ctrl+keys, etc.)
   if (process.stdin.setRawMode) {
     process.stdin.setRawMode(true);
   }
   process.stdin.resume();
+  // Remove any default encoding so we get raw buffers
+  process.stdin.setEncoding("utf8");
 
   return new Promise<"detach" | "exited">((resolve) => {
     let resolved = false;
+    let resizeListener: (() => void) | null = null;
 
     const cleanup = () => {
       if (resolved) return;
       resolved = true;
 
-      // Remove listeners
-      process.stdin.off("data", onStdinData);
-      unsubPty();
+      process.stdin.removeListener("data", onStdinData);
 
-      // Restore raw mode
-      if (process.stdin.setRawMode) {
-        process.stdin.setRawMode(wasRaw ?? false);
+      if (unsubPty) unsubPty();
+
+      if (resizeListener) {
+        process.stdout.removeListener("resize", resizeListener);
       }
 
-      // Clear screen before returning to Ink
+      if (process.stdin.setRawMode) {
+        process.stdin.setRawMode(false);
+      }
+
+      // Clear screen before returning to Ink TUI
       process.stdout.write("\x1b[2J\x1b[H");
     };
 
-    // Forward stdin → PTY
-    const onStdinData = (data: Buffer) => {
-      const str = data.toString();
+    // Forward ALL stdin → PTY
+    const onStdinData = (data: string | Buffer) => {
+      const str = typeof data === "string" ? data : data.toString("utf8");
 
-      // Ctrl+] (GS, 0x1D) — detach from agent
+      // Only intercept Ctrl+] (GS, 0x1D) for detach
       if (str === "\x1d") {
         cleanup();
         resolve("detach");
         return;
       }
 
-      // Forward to agent
+      // Everything else goes to the agent's PTY — Enter, arrows,
+      // Escape, number keys, Ctrl+C, etc.
       agentProcess.send(str);
     };
 
-    // Forward PTY output → stdout
+    // Forward PTY → stdout (completely raw, preserving all ANSI)
     const unsubPty = agentProcess.onData((data: string) => {
       process.stdout.write(data);
     });
 
-    // Handle agent exit
-    agentProcess.done.then(() => {
-      cleanup();
-      resolve("exited");
-    });
-
-    // Handle terminal resize
-    const onResize = () => {
-      const newCols = process.stdout.columns || 120;
-      const newRows = (process.stdout.rows || 40) - 1;
-      agentProcess.resize(newCols, newRows);
+    // Agent exited on its own
+    const onDone = () => {
+      if (!resolved) {
+        cleanup();
+        resolve("exited");
+      }
     };
-    process.stdout.on("resize", onResize);
+    agentProcess.done.then(onDone);
 
+    // Forward terminal resize → PTY
+    resizeListener = () => {
+      const c = process.stdout.columns || 120;
+      const r = process.stdout.rows || 40;
+      agentProcess.resize(c, r);
+    };
+    process.stdout.on("resize", resizeListener);
+
+    // Start listening
     process.stdin.on("data", onStdinData);
   });
 }
