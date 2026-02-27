@@ -28,13 +28,25 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   spawn(task: string, options?: SpawnOptions): AgentProcess {
+    // If explicit args provided, use them
+    // Otherwise: no task = interactive mode, with task = print mode
+    let args: string[];
+    if (options?.args) {
+      args = options.args;
+    } else if (task && task !== "interactive") {
+      args = ["-p", task];
+    } else {
+      // Interactive mode: launch claude without -p
+      args = [];
+    }
+
     return spawnPty({
       command: "claude",
-      args: options?.args ?? ["-p", task],
+      args,
       cwd: options?.cwd ?? process.cwd(),
       env: { ...process.env, ...options?.env } as Record<string, string>,
       agentName: "claude-code",
-      task,
+      task: task || "interactive",
     });
   }
 }

@@ -101,12 +101,9 @@ export function useAgents(processManager: ProcessManager, config: Config) {
       }
 
       try {
-        const agentConfig = config.agents[agentName];
-        const sessionId = await processManager.start(adapter, task, {
-          args: agentConfig?.args?.length
-            ? [...agentConfig.args, task]
-            : undefined,
-        });
+        // Let adapter decide args based on task
+        // Don't override args for interactive mode
+        const sessionId = await processManager.start(adapter, task);
 
         setError(null);
         refreshSessions();

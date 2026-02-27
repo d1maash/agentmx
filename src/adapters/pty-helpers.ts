@@ -27,8 +27,7 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
       env,
     });
   } catch (err) {
-    const msg =
-      err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : String(err);
     throw new Error(
       `Failed to start "${command}": ${msg}. Make sure "${command}" is installed and available in PATH.`
     );
@@ -43,6 +42,7 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
     exitResolve = resolve;
   });
 
+  // Raw data from PTY — keeps ALL ANSI codes intact
   ptyProcess.onData((data: string) => {
     const output: AgentOutput = {
       type: "stdout",
@@ -51,6 +51,7 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
     };
     buffer.push(output);
     emitter.emit("output", output);
+    emitter.emit("data", data);
   });
 
   ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
@@ -132,5 +133,16 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
     done: donePromise,
     task,
     agentName,
+    onData(listener: (data: string) => void): () => void {
+      emitter.on("data", listener);
+      return () => emitter.off("data", listener);
+    },
+    resize(cols: number, rows: number) {
+      try {
+        ptyProcess.resize(cols, rows);
+      } catch {
+        // Ignore resize errors on dead processes
+      }
+    },
   };
 }

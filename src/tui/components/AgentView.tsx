@@ -1,9 +1,25 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { AgentSession } from "../hooks/useAgents.js";
 
 interface AgentViewProps {
   session: AgentSession | undefined;
+}
+
+/**
+ * Concatenate all buffer chunks and split into terminal lines.
+ * Preserves ANSI color codes within each line for proper styling.
+ */
+function getLines(session: AgentSession, maxLines: number): string[] {
+  // Join all raw PTY output into one string
+  const raw = session.buffer.map((b) => b.data).join("");
+
+  // Split by newlines, keeping ANSI codes intact
+  const lines = raw.split(/\r?\n/);
+
+  // Take last N non-empty lines
+  const filtered = lines.filter((l) => l.trim().length > 0);
+  return filtered.slice(-maxLines);
 }
 
 export function AgentView({ session }: AgentViewProps) {
@@ -21,24 +37,26 @@ export function AgentView({ session }: AgentViewProps) {
         </Text>
         <Text dimColor>No agents running.</Text>
         <Text dimColor>
-          Press Ctrl+N to start an agent or use: agentmux run "task"
+          Press Ctrl+N to start an agent or use: agentmux run {"\"task\""}
         </Text>
       </Box>
     );
   }
 
-  // Get last N lines of output
   const maxLines = process.stdout.rows ? process.stdout.rows - 8 : 20;
-  const recentOutput = session.buffer.slice(-maxLines);
+  const lines = useMemo(
+    () => getLines(session, maxLines),
+    [session.buffer.length, maxLines]
+  );
 
   return (
     <Box flexDirection="column" flexGrow={1} paddingX={1}>
-      {recentOutput.length === 0 ? (
+      {lines.length === 0 ? (
         <Text dimColor>Waiting for output from {session.displayName}...</Text>
       ) : (
-        recentOutput.map((item, i) => (
+        lines.map((line, i) => (
           <Text key={i} wrap="truncate">
-            {item.data.replace(/\n$/, "")}
+            {line}
           </Text>
         ))
       )}

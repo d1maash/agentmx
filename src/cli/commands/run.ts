@@ -3,6 +3,7 @@ import { render } from "ink";
 import { App } from "../../tui/App.js";
 import { ProcessManager } from "../../core/process-manager.js";
 import { Router } from "../../core/router.js";
+import { rawPassthrough } from "../../tui/raw-passthrough.js";
 import type { Config } from "../../config/schema.js";
 
 interface RunOptions {
@@ -17,7 +18,6 @@ export async function runCommand(
 ): Promise<void> {
   const pm = new ProcessManager();
 
-  // Graceful shutdown
   const cleanup = async () => {
     await pm.stopAll();
     process.exit(0);
@@ -31,29 +31,61 @@ export async function runCommand(
   let splitView = false;
 
   if (options.parallel) {
-    // Parallel mode: run on multiple agents
     parallelAgents = options.parallel.split(",").map((s) => s.trim());
     splitView = true;
   } else if (options.agent && options.agent !== "auto") {
-    // Specific agent
     initialAgent = options.agent;
   } else {
-    // Auto-route
     const router = new Router(config);
     initialAgent = await router.route(task);
   }
 
-  const { waitUntilExit } = render(
-    React.createElement(App, {
-      processManager: pm,
-      config,
-      initialTask: task,
-      initialAgent,
-      parallelAgents,
-      splitView,
-    })
-  );
+  let running = true;
 
-  await waitUntilExit();
+  while (running) {
+    let focusSessionId: string | null = null;
+    let quit = false;
+
+    const onFocus = (sessionId: string) => {
+      focusSessionId = sessionId;
+      inkInstance.unmount();
+    };
+
+    const onQuit = async () => {
+      quit = true;
+      await pm.stopAll();
+      inkInstance.unmount();
+    };
+
+    const inkInstance = render(
+      React.createElement(App, {
+        processManager: pm,
+        config,
+        initialTask: task,
+        initialAgent,
+        parallelAgents,
+        splitView,
+        onFocus,
+        onQuit,
+      })
+    );
+
+    await inkInstance.waitUntilExit();
+
+    if (quit) {
+      running = false;
+      break;
+    }
+
+    if (focusSessionId) {
+      await rawPassthrough(pm, focusSessionId);
+    }
+
+    // Clear initialTask so it doesn't re-spawn on re-render
+    task = "";
+    initialAgent = undefined;
+    parallelAgents = undefined;
+  }
+
   await pm.stopAll();
 }

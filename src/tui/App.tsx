@@ -4,7 +4,6 @@ import { AgentTabs } from "./components/AgentTabs.js";
 import { AgentView } from "./components/AgentView.js";
 import { SplitView } from "./components/SplitView.js";
 import { StatusBar } from "./components/StatusBar.js";
-import { InputBar } from "./components/InputBar.js";
 import { useAgents } from "./hooks/useAgents.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import type { ProcessManager } from "../core/process-manager.js";
@@ -17,6 +16,10 @@ interface AppProps {
   initialAgent?: string;
   parallelAgents?: string[];
   splitView?: boolean;
+  /** Called when user wants to focus on an agent (raw passthrough) */
+  onFocus?: (sessionId: string) => void;
+  /** Called when user wants to quit */
+  onQuit?: () => void;
 }
 
 export function App({
@@ -26,22 +29,39 @@ export function App({
   initialAgent,
   parallelAgents,
   splitView = false,
+  onFocus,
+  onQuit,
 }: AppProps) {
   const { exit } = useApp();
-  const { sessions, startAgent, stopAgent, sendInput, adapters, error, clearError } = useAgents(
-    processManager,
-    config
-  );
+  const {
+    sessions,
+    startAgent,
+    stopAgent,
+    sendInput,
+    adapters,
+    error,
+    clearError,
+  } = useAgents(processManager, config);
 
   const [showNewAgent, setShowNewAgent] = useState(false);
-  const [newAgentInput, setNewAgentInput] = useState("");
   const [initialized, setInitialized] = useState(false);
 
   const { activeIndex, focused, setFocused } = useKeyboard({
     sessionsCount: sessions.length,
     onQuit: async () => {
-      await processManager.stopAll();
-      exit();
+      if (onQuit) {
+        onQuit();
+      } else {
+        await processManager.stopAll();
+        exit();
+      }
+    },
+    onNewAgent: () => setShowNewAgent(true),
+    onKillAgent: async () => {
+      const session = sessions[activeIndex];
+      if (session) {
+        await stopAgent(session.id);
+      }
     },
   });
 
@@ -51,7 +71,6 @@ export function App({
     setInitialized(true);
 
     if (initialTask && parallelAgents && parallelAgents.length > 0) {
-      // Parallel mode
       for (const agent of parallelAgents) {
         startAgent(agent, initialTask).catch(() => {});
       }
@@ -68,10 +87,18 @@ export function App({
     startAgent,
   ]);
 
-  // Handle Ctrl+N for new agent
-  useInput((input, key) => {
-    if (input === "n" && key.ctrl) {
-      setShowNewAgent(true);
+  // Handle Enter to focus — trigger raw passthrough
+  useInput((_input, key) => {
+    if (
+      key.return &&
+      !showNewAgent &&
+      sessions.length > 0 &&
+      !focused
+    ) {
+      const session = sessions[activeIndex];
+      if (session && onFocus) {
+        onFocus(session.id);
+      }
     }
   });
 
@@ -79,12 +106,18 @@ export function App({
     async (agentName: string) => {
       const agent = agentName.trim();
       if (adapters.has(agent)) {
-        await startAgent(agent, "interactive session");
+        const sessionId = await startAgent(agent, "interactive");
+        setShowNewAgent(false);
+        // Auto-focus on the new agent
+        if (sessionId && onFocus) {
+          // Small delay for PTY to initialize
+          setTimeout(() => onFocus(sessionId), 200);
+        }
+      } else {
+        setShowNewAgent(false);
       }
-      setShowNewAgent(false);
-      setNewAgentInput("");
     },
-    [adapters, startAgent]
+    [adapters, startAgent, onFocus]
   );
 
   // Dismiss error on any key
@@ -118,7 +151,7 @@ export function App({
     return (
       <Box flexDirection="column" height="100%">
         <SplitView sessions={sessions} direction={config.ui.split_view} />
-        <StatusBar session={activeSession} focused={focused} />
+        <StatusBar session={activeSession} focused={false} />
       </Box>
     );
   }
@@ -129,7 +162,9 @@ export function App({
       <AgentTabs sessions={sessions} activeIndex={activeIndex} />
       {error && (
         <Box paddingX={1} borderStyle="single" borderColor="red">
-          <Text color="red" bold>Error: </Text>
+          <Text color="red" bold>
+            Error:{" "}
+          </Text>
           <Text color="red">{error}</Text>
           <Text dimColor> (press any key to dismiss)</Text>
         </Box>
@@ -137,19 +172,12 @@ export function App({
       <Box borderStyle="single" borderColor="gray" flexGrow={1}>
         <AgentView session={activeSession} />
       </Box>
-      <StatusBar session={activeSession} focused={focused} />
-      {activeSession && (
-        <InputBar
-          agentName={activeSession.displayName}
-          focused={focused}
-          onSubmit={(text) => sendInput(activeSession.id, text)}
-        />
-      )}
+      <StatusBar session={activeSession} focused={false} />
     </Box>
   );
 }
 
-// Simple agent selector component
+// Agent selector component
 function NewAgentPrompt({
   agents,
   onSelect,
@@ -184,9 +212,7 @@ function NewAgentPrompt({
           {agent}
         </Text>
       ))}
-      <Text dimColor marginTop={1}>
-        ↑/↓ select | Enter confirm | Esc cancel
-      </Text>
+      <Text dimColor>↑/↓ select | Enter confirm | Esc cancel</Text>
     </Box>
   );
 }

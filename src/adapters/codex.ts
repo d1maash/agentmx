@@ -28,13 +28,22 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   spawn(task: string, options?: SpawnOptions): AgentProcess {
+    let args: string[];
+    if (options?.args) {
+      args = options.args;
+    } else if (task && task !== "interactive") {
+      args = [task];
+    } else {
+      args = [];
+    }
+
     return spawnPty({
       command: "codex",
-      args: options?.args ?? [task],
+      args,
       cwd: options?.cwd ?? process.cwd(),
       env: { ...process.env, ...options?.env } as Record<string, string>,
       agentName: "codex",
-      task,
+      task: task || "interactive",
     });
   }
 }
