@@ -1,0 +1,37 @@
+# AgentMux Configuration
+# Copy as .agentmux.yml to your project root
+
+default_agent: claude-code
+
+agents:
+  claude-code:
+    command: claude
+    enabled: true
+
+  codex:
+    command: codex
+    args: ["--model", "o4-mini"]
+    enabled: true
+
+  aider:
+    command: aider
+    args: ["--model", "sonnet"]
+    enabled: false
+
+router:
+  mode: rules   # auto | rules | manual
+  rules:
+    - match: "тест|test|spec|coverage"
+      agent: codex
+      reason: "Codex is great for test generation"
+
+    - match: "рефакторинг|refactor|clean"
+      agent: claude-code
+
+    - match: "документация|docs|readme|comment"
+      agent: claude-code
+
+ui:
+  theme: dark
+  show_tokens: false
+  show_cost: false
