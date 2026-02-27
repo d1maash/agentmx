@@ -4,7 +4,13 @@ import { App } from "../../tui/App.js";
 import { ProcessManager } from "../../core/process-manager.js";
 import { Router } from "../../core/router.js";
 import { rawPassthrough } from "../../tui/raw-passthrough.js";
+import { createAdapters } from "../../adapters/factory.js";
 import type { Config } from "../../config/schema.js";
+
+type RunAction =
+  | { type: "focus"; sessionId: string }
+  | { type: "start_fresh"; agentName: string }
+  | { type: "quit" };
 
 interface RunOptions {
   agent?: string;
@@ -17,6 +23,7 @@ export async function runCommand(
   config: Config
 ): Promise<void> {
   const pm = new ProcessManager();
+  const adapters = createAdapters(config);
 
   const cleanup = async () => {
     await pm.stopAll();
@@ -43,19 +50,26 @@ export async function runCommand(
   let running = true;
 
   while (running) {
-    let focusSessionId: string | null = null;
-    let quit = false;
+    let action: RunAction | null = null;
 
     const onFocus = (sessionId: string) => {
-      focusSessionId = sessionId;
+      action = { type: "focus", sessionId };
+      inkInstance.unmount();
+    };
+
+    const onStartFresh = (agentName: string) => {
+      action = { type: "start_fresh", agentName };
       inkInstance.unmount();
     };
 
     const onQuit = async () => {
-      quit = true;
+      action = { type: "quit" };
       await pm.stopAll();
       inkInstance.unmount();
     };
+
+    // Enter alternate screen buffer for Ink TUI
+    process.stdout.write("\x1b[?1049h");
 
     const inkInstance = render(
       React.createElement(App, {
@@ -66,19 +80,59 @@ export async function runCommand(
         parallelAgents,
         splitView,
         onFocus,
+        onStartFresh,
         onQuit,
       })
     );
 
     await inkInstance.waitUntilExit();
 
-    if (quit) {
+    // Leave alternate screen buffer
+    process.stdout.write("\x1b[?1049l");
+
+    if (!action || action.type === "quit") {
       running = false;
       break;
     }
 
-    if (focusSessionId) {
-      await rawPassthrough(pm, focusSessionId);
+    if (action.type === "focus") {
+      const agentProcess = pm.get(action.sessionId);
+
+      // If agent is done/error, respawn a fresh interactive session
+      if (
+        !agentProcess ||
+        agentProcess.status === "done" ||
+        agentProcess.status === "error"
+      ) {
+        const session = pm.getSession(action.sessionId);
+        if (session) {
+          const adapter = adapters.get(session.agentName);
+          if (adapter) {
+            const newSessionId = await pm.start(adapter, "interactive");
+            await rawPassthrough(pm, newSessionId);
+            // Clear initialTask so it doesn't re-spawn on re-render
+            task = "";
+            initialAgent = undefined;
+            parallelAgents = undefined;
+            continue;
+          }
+        }
+        task = "";
+        initialAgent = undefined;
+        parallelAgents = undefined;
+        continue;
+      }
+
+      await rawPassthrough(pm, action.sessionId);
+    }
+
+    if (action.type === "start_fresh") {
+      // Spawn agent on clean terminal (Ink is unmounted, alt buffer off)
+      const adapter = adapters.get(action.agentName);
+      if (adapter) {
+        const sessionId = await pm.start(adapter, "interactive");
+        await rawPassthrough(pm, sessionId);
+      }
     }
 
     // Clear initialTask so it doesn't re-spawn on re-render

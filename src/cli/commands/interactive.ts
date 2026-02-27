@@ -3,14 +3,17 @@ import { render } from "ink";
 import { App } from "../../tui/App.js";
 import { ProcessManager } from "../../core/process-manager.js";
 import { rawPassthrough } from "../../tui/raw-passthrough.js";
+import { createAdapters } from "../../adapters/factory.js";
 import type { Config } from "../../config/schema.js";
 
 export type TUIAction =
   | { type: "focus"; sessionId: string }
+  | { type: "start_fresh"; agentName: string }
   | { type: "quit" };
 
 export async function interactiveCommand(config: Config): Promise<void> {
   const pm = new ProcessManager();
+  const adapters = createAdapters(config);
 
   const cleanup = async () => {
     await pm.stopAll();
@@ -30,6 +33,11 @@ export async function interactiveCommand(config: Config): Promise<void> {
       inkInstance.unmount();
     };
 
+    const onStartFresh = (agentName: string) => {
+      action = { type: "start_fresh", agentName };
+      inkInstance.unmount();
+    };
+
     const onQuit = async () => {
       action = { type: "quit" };
       await pm.stopAll();
@@ -44,6 +52,7 @@ export async function interactiveCommand(config: Config): Promise<void> {
         processManager: pm,
         config,
         onFocus,
+        onStartFresh,
         onQuit,
       })
     );
@@ -59,13 +68,40 @@ export async function interactiveCommand(config: Config): Promise<void> {
     }
 
     if (action.type === "focus") {
-      // Raw passthrough — agent gets full terminal, no alternate buffer
-      const result = await rawPassthrough(pm, action.sessionId);
+      const agentProcess = pm.get(action.sessionId);
 
-      // After detach/exit, loop back to Ink TUI (which enters alt buffer)
-      if (result === "exited") {
-        // Agent done
+      // If agent is done/error, respawn a fresh interactive session
+      if (
+        !agentProcess ||
+        agentProcess.status === "done" ||
+        agentProcess.status === "error"
+      ) {
+        const session = pm.getSession(action.sessionId);
+        if (session) {
+          const adapter = adapters.get(session.agentName);
+          if (adapter) {
+            const newSessionId = await pm.start(adapter, "interactive");
+            await rawPassthrough(pm, newSessionId);
+            continue;
+          }
+        }
+        // Couldn't respawn — loop back to TUI
+        continue;
       }
+
+      // Raw passthrough — agent gets full terminal, no alternate buffer
+      await rawPassthrough(pm, action.sessionId);
+      // After detach/exit, loop back to Ink TUI
+    }
+
+    if (action.type === "start_fresh") {
+      // Spawn agent on clean terminal (Ink is unmounted, alt buffer off)
+      const adapter = adapters.get(action.agentName);
+      if (adapter) {
+        const sessionId = await pm.start(adapter, "interactive");
+        await rawPassthrough(pm, sessionId);
+      }
+      // After detach/exit, loop back to Ink TUI
     }
   }
 

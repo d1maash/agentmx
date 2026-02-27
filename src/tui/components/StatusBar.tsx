@@ -51,7 +51,7 @@ export function StatusBar({ session }: StatusBarProps) {
       </Box>
       <Box gap={1}>
         <Text dimColor>
-          1-9 switch | Enter focus | Ctrl+N new | Ctrl+W kill | Ctrl+Q quit
+          1-9 switch | Enter {session?.status === "done" || session?.status === "error" ? "restart" : "focus"} | Ctrl+N new | Ctrl+W kill | Ctrl+Q quit
         </Text>
       </Box>
     </Box>
