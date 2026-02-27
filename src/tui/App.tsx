@@ -16,9 +16,11 @@ interface AppProps {
   initialAgent?: string;
   parallelAgents?: string[];
   splitView?: boolean;
-  /** Called when user wants to focus on an agent (raw passthrough) */
+  /** Focus an existing running agent (raw passthrough) */
   onFocus?: (sessionId: string) => void;
-  /** Called when user wants to quit */
+  /** Start a new agent and immediately enter raw passthrough */
+  onStartFresh?: (agentName: string) => void;
+  /** Quit the app */
   onQuit?: () => void;
 }
 
@@ -30,6 +32,7 @@ export function App({
   parallelAgents,
   splitView = false,
   onFocus,
+  onStartFresh,
   onQuit,
 }: AppProps) {
   const { exit } = useApp();
@@ -37,7 +40,6 @@ export function App({
     sessions,
     startAgent,
     stopAgent,
-    sendInput,
     adapters,
     error,
     clearError,
@@ -46,7 +48,7 @@ export function App({
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
-  const { activeIndex, focused, setFocused } = useKeyboard({
+  const { activeIndex } = useKeyboard({
     sessionsCount: sessions.length,
     onQuit: async () => {
       if (onQuit) {
@@ -65,7 +67,7 @@ export function App({
     },
   });
 
-  // Initialize with task if provided
+  // Initialize with task if provided (for `agentmux run`)
   React.useEffect(() => {
     if (initialized) return;
     setInitialized(true);
@@ -87,14 +89,9 @@ export function App({
     startAgent,
   ]);
 
-  // Handle Enter to focus — trigger raw passthrough
+  // Enter → focus on existing agent (raw passthrough)
   useInput((_input, key) => {
-    if (
-      key.return &&
-      !showNewAgent &&
-      sessions.length > 0 &&
-      !focused
-    ) {
+    if (key.return && !showNewAgent && sessions.length > 0) {
       const session = sessions[activeIndex];
       if (session && onFocus) {
         onFocus(session.id);
@@ -102,25 +99,20 @@ export function App({
     }
   });
 
+  // Select agent from menu → spawn fresh in raw mode
   const handleNewAgent = useCallback(
-    async (agentName: string) => {
+    (agentName: string) => {
       const agent = agentName.trim();
-      if (adapters.has(agent)) {
-        const sessionId = await startAgent(agent, "interactive");
-        setShowNewAgent(false);
-        // Auto-focus on the new agent
-        if (sessionId && onFocus) {
-          // Small delay for PTY to initialize
-          setTimeout(() => onFocus(sessionId), 200);
-        }
-      } else {
-        setShowNewAgent(false);
+      setShowNewAgent(false);
+      if (adapters.has(agent) && onStartFresh) {
+        // Don't spawn here — let interactive.ts spawn in raw mode
+        onStartFresh(agent);
       }
     },
-    [adapters, startAgent, onFocus]
+    [adapters, onStartFresh]
   );
 
-  // Dismiss error on any key
+  // Dismiss error
   useInput(() => {
     if (error) clearError();
   });
@@ -162,9 +154,7 @@ export function App({
       <AgentTabs sessions={sessions} activeIndex={activeIndex} />
       {error && (
         <Box paddingX={1} borderStyle="single" borderColor="red">
-          <Text color="red" bold>
-            Error:{" "}
-          </Text>
+          <Text color="red" bold>Error: </Text>
           <Text color="red">{error}</Text>
           <Text dimColor> (press any key to dismiss)</Text>
         </Box>
@@ -177,7 +167,7 @@ export function App({
   );
 }
 
-// Agent selector component
+// Agent selector
 function NewAgentPrompt({
   agents,
   onSelect,
@@ -190,18 +180,10 @@ function NewAgentPrompt({
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useInput((input, key) => {
-    if (key.upArrow) {
-      setSelectedIndex((i) => Math.max(0, i - 1));
-    }
-    if (key.downArrow) {
-      setSelectedIndex((i) => Math.min(agents.length - 1, i + 1));
-    }
-    if (key.return) {
-      onSelect(agents[selectedIndex]);
-    }
-    if (key.escape) {
-      onCancel();
-    }
+    if (key.upArrow) setSelectedIndex((i) => Math.max(0, i - 1));
+    if (key.downArrow) setSelectedIndex((i) => Math.min(agents.length - 1, i + 1));
+    if (key.return) onSelect(agents[selectedIndex]);
+    if (key.escape) onCancel();
   });
 
   return (
