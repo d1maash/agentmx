@@ -28,13 +28,17 @@ export function App({
   splitView = false,
 }: AppProps) {
   const { exit } = useApp();
-  const { sessions, startAgent, stopAgent, sendInput, adapters, error, clearError } = useAgents(
-    processManager,
-    config
-  );
+  const {
+    sessions,
+    startAgent,
+    stopAgent,
+    sendInput,
+    adapters,
+    error,
+    clearError,
+  } = useAgents(processManager, config);
 
   const [showNewAgent, setShowNewAgent] = useState(false);
-  const [newAgentInput, setNewAgentInput] = useState("");
   const [initialized, setInitialized] = useState(false);
 
   const { activeIndex, focused, setFocused } = useKeyboard({
@@ -42,6 +46,13 @@ export function App({
     onQuit: async () => {
       await processManager.stopAll();
       exit();
+    },
+    onNewAgent: () => setShowNewAgent(true),
+    onKillAgent: async () => {
+      const session = sessions[activeIndex];
+      if (session) {
+        await stopAgent(session.id);
+      }
     },
   });
 
@@ -51,7 +62,6 @@ export function App({
     setInitialized(true);
 
     if (initialTask && parallelAgents && parallelAgents.length > 0) {
-      // Parallel mode
       for (const agent of parallelAgents) {
         startAgent(agent, initialTask).catch(() => {});
       }
@@ -68,13 +78,6 @@ export function App({
     startAgent,
   ]);
 
-  // Handle Ctrl+N for new agent
-  useInput((input, key) => {
-    if (input === "n" && key.ctrl) {
-      setShowNewAgent(true);
-    }
-  });
-
   const handleNewAgent = useCallback(
     async (agentName: string) => {
       const agent = agentName.trim();
@@ -82,7 +85,6 @@ export function App({
         await startAgent(agent, "interactive session");
       }
       setShowNewAgent(false);
-      setNewAgentInput("");
     },
     [adapters, startAgent]
   );
@@ -101,7 +103,9 @@ export function App({
     return (
       <Box flexDirection="column" padding={1}>
         <Text bold>Start new agent</Text>
-        <Text>Available: {availableAgents.join(", ")}</Text>
+        <Text>
+          Available: {availableAgents.join(", ")}
+        </Text>
         <Box marginTop={1}>
           <NewAgentPrompt
             agents={availableAgents}
@@ -129,7 +133,9 @@ export function App({
       <AgentTabs sessions={sessions} activeIndex={activeIndex} />
       {error && (
         <Box paddingX={1} borderStyle="single" borderColor="red">
-          <Text color="red" bold>Error: </Text>
+          <Text color="red" bold>
+            Error:{" "}
+          </Text>
           <Text color="red">{error}</Text>
           <Text dimColor> (press any key to dismiss)</Text>
         </Box>
@@ -149,7 +155,7 @@ export function App({
   );
 }
 
-// Simple agent selector component
+// Agent selector component
 function NewAgentPrompt({
   agents,
   onSelect,
@@ -184,9 +190,7 @@ function NewAgentPrompt({
           {agent}
         </Text>
       ))}
-      <Text dimColor marginTop={1}>
-        ↑/↓ select | Enter confirm | Esc cancel
-      </Text>
+      <Text dimColor>↑/↓ select | Enter confirm | Esc cancel</Text>
     </Box>
   );
 }

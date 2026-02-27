@@ -52,8 +52,8 @@ export function StatusBar({ session, focused }: StatusBarProps) {
       <Box gap={1}>
         <Text dimColor>
           {focused
-            ? "Esc exit focus"
-            : "←/→ switch | Tab next | Enter focus | Ctrl+N new | Ctrl+Q quit"}
+            ? "Esc unfocus | Ctrl+Q quit"
+            : "1-9 switch | Tab next | Enter focus | Ctrl+N new | Ctrl+W kill | Ctrl+Q quit"}
         </Text>
       </Box>
     </Box>

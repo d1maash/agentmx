@@ -7,19 +7,31 @@ interface AgentTabsProps {
   activeIndex: number;
 }
 
-function statusIndicator(status: string): { symbol: string; color: string } {
+function statusColor(status: string): string {
   switch (status) {
     case "running":
     case "spawning":
-      return { symbol: "●", color: "green" };
-    case "idle":
-      return { symbol: "○", color: "gray" };
+      return "green";
     case "error":
-      return { symbol: "●", color: "red" };
+      return "red";
     case "done":
-      return { symbol: "✓", color: "cyan" };
+      return "cyan";
     default:
-      return { symbol: "○", color: "gray" };
+      return "gray";
+  }
+}
+
+function statusSymbol(status: string): string {
+  switch (status) {
+    case "running":
+    case "spawning":
+      return "●";
+    case "error":
+      return "✗";
+    case "done":
+      return "✓";
+    default:
+      return "○";
   }
 }
 
@@ -36,24 +48,23 @@ export function AgentTabs({ sessions, activeIndex }: AgentTabsProps) {
     <Box paddingX={1} gap={1}>
       {sessions.map((session, index) => {
         const isActive = index === activeIndex;
-        const { symbol, color } = statusIndicator(session.status);
-        const taskPreview =
-          session.task.length > 20
-            ? session.task.slice(0, 20) + "…"
-            : session.task;
+        const color = statusColor(session.status);
+        const symbol = statusSymbol(session.status);
+        const num = index + 1;
 
         return (
           <Box key={session.id}>
-            <Text
-              bold={isActive}
-              inverse={isActive}
-              color={isActive ? "white" : undefined}
-              backgroundColor={isActive ? "blue" : undefined}
-            >
-              {" "}
-              <Text color={color}>{symbol}</Text> {session.displayName}
-              {taskPreview ? `: ${taskPreview}` : ""}{" "}
-            </Text>
+            {isActive ? (
+              <Text bold inverse color="white" backgroundColor="blue">
+                {" "}
+                <Text color={color}>{symbol}</Text> {num}:{session.displayName}{" "}
+              </Text>
+            ) : (
+              <Text dimColor={session.status === "done"}>
+                {" "}
+                <Text color={color}>{symbol}</Text> {num}:{session.displayName}{" "}
+              </Text>
+            )}
           </Box>
         );
       })}
