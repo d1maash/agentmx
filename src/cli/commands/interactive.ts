@@ -2,7 +2,7 @@ import React from "react";
 import { render } from "ink";
 import { App } from "../../tui/App.js";
 import { ProcessManager } from "../../core/process-manager.js";
-import { rawPassthrough } from "../../tui/raw-passthrough.js";
+import { rawPassthrough, rawPassthroughFresh } from "../../tui/raw-passthrough.js";
 import { createAdapters } from "../../adapters/factory.js";
 import type { Config } from "../../config/schema.js";
 
@@ -80,28 +80,23 @@ export async function interactiveCommand(config: Config): Promise<void> {
         if (session) {
           const adapter = adapters.get(session.agentName);
           if (adapter) {
-            const newSessionId = await pm.start(adapter, "interactive");
-            await rawPassthrough(pm, newSessionId);
+            await rawPassthroughFresh(pm, adapter, "interactive");
             continue;
           }
         }
-        // Couldn't respawn — loop back to TUI
         continue;
       }
 
-      // Raw passthrough — agent gets full terminal, no alternate buffer
+      // Existing running session — replay buffer and enter passthrough
       await rawPassthrough(pm, action.sessionId);
-      // After detach/exit, loop back to Ink TUI
     }
 
     if (action.type === "start_fresh") {
-      // Spawn agent on clean terminal (Ink is unmounted, alt buffer off)
+      // Spawn agent on clean terminal with output listener already active
       const adapter = adapters.get(action.agentName);
       if (adapter) {
-        const sessionId = await pm.start(adapter, "interactive");
-        await rawPassthrough(pm, sessionId);
+        await rawPassthroughFresh(pm, adapter, "interactive");
       }
-      // After detach/exit, loop back to Ink TUI
     }
   }
 

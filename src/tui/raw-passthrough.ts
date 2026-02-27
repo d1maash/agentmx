@@ -1,12 +1,28 @@
 import type { ProcessManager } from "../core/process-manager.js";
+import type { AgentAdapter, AgentProcess } from "../adapters/types.js";
 
 /**
- * Raw terminal passthrough mode.
+ * Terminal reset sequence — clears all modes Ink or other TUI frameworks
+ * may have left active (mouse tracking, scroll regions, charsets, etc.)
+ */
+const TERMINAL_RESET =
+  "\x1b[?1049l" + // Ensure main screen buffer (not alternate)
+  "\x1b[?25h" + // Show cursor
+  "\x1b[?1000l" + // Disable mouse click tracking
+  "\x1b[?1002l" + // Disable mouse button-event tracking
+  "\x1b[?1003l" + // Disable mouse any-event tracking
+  "\x1b[?1006l" + // Disable SGR extended mouse mode
+  "\x1b[r" + // Reset scroll region to full screen
+  "\x1b(B" + // Reset charset to ASCII
+  "\x1b[m" + // Reset all text attributes
+  "\x1b[2J\x1b[H"; // Clear screen, cursor home
+
+/**
+ * Raw passthrough for an EXISTING running session.
  *
- * Directly connects stdin/stdout to the agent's PTY,
- * preserving the agent's native terminal UI perfectly.
+ * Replays any buffered output (that was produced while the TUI was showing),
+ * then connects stdin/stdout directly to the agent's PTY.
  *
- * The agent controls the entire screen — AgentMux is invisible.
  * Exit: Ctrl+] (GS, 0x1D) — returns to AgentMux TUI.
  */
 export async function rawPassthrough(
@@ -16,32 +32,63 @@ export async function rawPassthrough(
   const agentProcess = pm.get(sessionId);
   if (!agentProcess) return "exited";
 
-  // If agent already done, don't enter passthrough
   if (agentProcess.status === "done" || agentProcess.status === "error") {
     return "exited";
   }
 
-  // Clear screen
-  process.stdout.write("\x1b[2J\x1b[H");
+  // Clean terminal for the agent
+  process.stdout.write(TERMINAL_RESET);
 
-  // Resize PTY to match full terminal
-  const cols = process.stdout.columns || 120;
-  const rows = process.stdout.rows || 40;
-  agentProcess.resize(cols, rows);
-
-  // Small delay then resize again to force agent redraw
-  await new Promise((r) => setTimeout(r, 100));
-  agentProcess.resize(cols, rows);
-
-  // Set stdin to raw mode so ALL keystrokes pass through
-  // (arrows, Enter, Escape, Ctrl+keys, etc.)
   if (process.stdin.setRawMode) {
     process.stdin.setRawMode(true);
   }
   process.stdin.resume();
-  // Remove any default encoding so we get raw buffers
   process.stdin.setEncoding("utf8");
 
+  return runPassthroughLoop(agentProcess, true);
+}
+
+/**
+ * Spawn a NEW agent and immediately enter raw passthrough.
+ *
+ * The agent is spawned AFTER the output listener is ready,
+ * so we never miss any output — no garbled/broken rendering.
+ *
+ * Exit: Ctrl+] (GS, 0x1D) — returns to AgentMux TUI.
+ */
+export async function rawPassthroughFresh(
+  pm: ProcessManager,
+  adapter: AgentAdapter,
+  task: string
+): Promise<{ result: "detach" | "exited"; sessionId: string }> {
+  // Clean terminal BEFORE spawning the agent
+  process.stdout.write(TERMINAL_RESET);
+
+  if (process.stdin.setRawMode) {
+    process.stdin.setRawMode(true);
+  }
+  process.stdin.resume();
+  process.stdin.setEncoding("utf8");
+
+  // Spawn the agent — PTY starts producing output immediately
+  const sessionId = await pm.start(adapter, task);
+  const agentProcess = pm.get(sessionId)!;
+
+  // Enter passthrough with buffer replay (catches any output from spawn)
+  const result = await runPassthroughLoop(agentProcess, true);
+  return { result, sessionId };
+}
+
+/**
+ * Core passthrough loop shared by both rawPassthrough and rawPassthroughFresh.
+ *
+ * Connects stdin/stdout to the agent's PTY. All keystrokes go to the agent
+ * except Ctrl+] which detaches.
+ */
+function runPassthroughLoop(
+  agentProcess: AgentProcess,
+  replayBuffer: boolean
+): Promise<"detach" | "exited"> {
   return new Promise<"detach" | "exited">((resolve) => {
     let resolved = false;
     let resizeListener: (() => void) | null = null;
@@ -51,7 +98,6 @@ export async function rawPassthrough(
       resolved = true;
 
       process.stdin.removeListener("data", onStdinData);
-
       if (unsubPty) unsubPty();
 
       if (resizeListener) {
@@ -77,15 +123,23 @@ export async function rawPassthrough(
         return;
       }
 
-      // Everything else goes to the agent's PTY — Enter, arrows,
-      // Escape, number keys, Ctrl+C, etc.
+      // Everything else goes to the agent's PTY
       agentProcess.send(str);
     };
 
-    // Forward PTY → stdout (completely raw, preserving all ANSI)
+    // STEP 1: Subscribe to NEW PTY output first
     const unsubPty = agentProcess.onData((data: string) => {
       process.stdout.write(data);
     });
+
+    // STEP 2: Replay buffered output that was produced before subscription.
+    // This is synchronous — no events can fire between subscription and replay,
+    // so there's no gap or duplication.
+    if (replayBuffer && agentProcess.buffer.length > 0) {
+      for (const output of agentProcess.buffer) {
+        process.stdout.write(output.data);
+      }
+    }
 
     // Agent exited on its own
     const onDone = () => {
@@ -104,7 +158,18 @@ export async function rawPassthrough(
     };
     process.stdout.on("resize", resizeListener);
 
-    // Start listening
+    // Start listening to stdin
     process.stdin.on("data", onStdinData);
+
+    // STEP 3: Force resize to ensure PTY matches actual terminal.
+    // Use cols-1 first to guarantee SIGWINCH even if dimensions match.
+    const cols = process.stdout.columns || 120;
+    const rows = process.stdout.rows || 40;
+    agentProcess.resize(cols - 1, rows);
+    setTimeout(() => {
+      if (!resolved) {
+        agentProcess.resize(cols, rows);
+      }
+    }, 50);
   });
 }

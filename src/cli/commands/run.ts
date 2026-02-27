@@ -3,7 +3,7 @@ import { render } from "ink";
 import { App } from "../../tui/App.js";
 import { ProcessManager } from "../../core/process-manager.js";
 import { Router } from "../../core/router.js";
-import { rawPassthrough } from "../../tui/raw-passthrough.js";
+import { rawPassthrough, rawPassthroughFresh } from "../../tui/raw-passthrough.js";
 import { createAdapters } from "../../adapters/factory.js";
 import type { Config } from "../../config/schema.js";
 
@@ -108,9 +108,7 @@ export async function runCommand(
         if (session) {
           const adapter = adapters.get(session.agentName);
           if (adapter) {
-            const newSessionId = await pm.start(adapter, "interactive");
-            await rawPassthrough(pm, newSessionId);
-            // Clear initialTask so it doesn't re-spawn on re-render
+            await rawPassthroughFresh(pm, adapter, "interactive");
             task = "";
             initialAgent = undefined;
             parallelAgents = undefined;
@@ -123,15 +121,14 @@ export async function runCommand(
         continue;
       }
 
+      // Existing running session
       await rawPassthrough(pm, action.sessionId);
     }
 
     if (action.type === "start_fresh") {
-      // Spawn agent on clean terminal (Ink is unmounted, alt buffer off)
       const adapter = adapters.get(action.agentName);
       if (adapter) {
-        const sessionId = await pm.start(adapter, "interactive");
-        await rawPassthrough(pm, sessionId);
+        await rawPassthroughFresh(pm, adapter, "interactive");
       }
     }
 
