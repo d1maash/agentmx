@@ -50,6 +50,7 @@ function createAdapters(config: Config): Map<string, AgentAdapter> {
 
 export function useAgents(processManager: ProcessManager, config: Config) {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [adapters] = useState(() => createAdapters(config));
 
   // Sync sessions from process manager
@@ -89,22 +90,32 @@ export function useAgents(processManager: ProcessManager, config: Config) {
     };
   }, [processManager, refreshSessions]);
 
+  const clearError = useCallback(() => setError(null), []);
+
   const startAgent = useCallback(
     async (agentName: string, task: string) => {
       const adapter = adapters.get(agentName);
       if (!adapter) {
-        throw new Error(`Agent "${agentName}" not configured`);
+        setError(`Agent "${agentName}" is not configured. Check .agentmux.yml`);
+        return undefined;
       }
 
-      const agentConfig = config.agents[agentName];
-      const sessionId = await processManager.start(adapter, task, {
-        args: agentConfig?.args?.length
-          ? [...agentConfig.args, task]
-          : undefined,
-      });
+      try {
+        const agentConfig = config.agents[agentName];
+        const sessionId = await processManager.start(adapter, task, {
+          args: agentConfig?.args?.length
+            ? [...agentConfig.args, task]
+            : undefined,
+        });
 
-      refreshSessions();
-      return sessionId;
+        setError(null);
+        refreshSessions();
+        return sessionId;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg);
+        return undefined;
+      }
     },
     [adapters, processManager, config, refreshSessions]
   );
@@ -127,6 +138,8 @@ export function useAgents(processManager: ProcessManager, config: Config) {
   return {
     sessions,
     adapters,
+    error,
+    clearError,
     startAgent,
     stopAgent,
     sendInput,

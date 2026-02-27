@@ -28,7 +28,7 @@ export function App({
   splitView = false,
 }: AppProps) {
   const { exit } = useApp();
-  const { sessions, startAgent, stopAgent, sendInput, adapters } = useAgents(
+  const { sessions, startAgent, stopAgent, sendInput, adapters, error, clearError } = useAgents(
     processManager,
     config
   );
@@ -87,6 +87,11 @@ export function App({
     [adapters, startAgent]
   );
 
+  // Dismiss error on any key
+  useInput(() => {
+    if (error) clearError();
+  });
+
   const activeSession = sessions[activeIndex];
 
   // New agent prompt
@@ -122,6 +127,13 @@ export function App({
   return (
     <Box flexDirection="column" height="100%">
       <AgentTabs sessions={sessions} activeIndex={activeIndex} />
+      {error && (
+        <Box paddingX={1} borderStyle="single" borderColor="red">
+          <Text color="red" bold>Error: </Text>
+          <Text color="red">{error}</Text>
+          <Text dimColor> (press any key to dismiss)</Text>
+        </Box>
+      )}
       <Box borderStyle="single" borderColor="gray" flexGrow={1}>
         <AgentView session={activeSession} />
       </Box>
