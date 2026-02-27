@@ -38,6 +38,12 @@ export interface AgentProcess {
 
   /** Agent name */
   agentName: string;
+
+  /** Subscribe to raw output data. Returns unsubscribe function. */
+  onData(listener: (data: string) => void): () => void;
+
+  /** Resize the PTY */
+  resize(cols: number, rows: number): void;
 }
 
 export interface AgentAdapter {

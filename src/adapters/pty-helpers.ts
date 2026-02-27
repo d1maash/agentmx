@@ -5,15 +5,6 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const pty = require("node-pty");
 
-// Filter out terminal query responses (DA, DSR, etc.) that agents trigger
-// These are NOT visual output — they're control protocol messages
-const TERMINAL_RESPONSE_RE =
-  /\x1b\[\?[0-9;]*c|\x1b\[[0-9;]*R|\x1b\[>[0-9;]*c|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
-
-function cleanPtyOutput(data: string): string {
-  return data.replace(TERMINAL_RESPONSE_RE, "");
-}
-
 export interface PtySpawnOptions {
   command: string;
   args: string[];
@@ -51,18 +42,16 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
     exitResolve = resolve;
   });
 
+  // Raw data from PTY — keeps ALL ANSI codes intact
   ptyProcess.onData((data: string) => {
-    // Clean terminal protocol responses but keep visual ANSI (colors, bold, etc.)
-    const cleaned = cleanPtyOutput(data);
-    if (!cleaned) return; // Skip if only contained control responses
-
     const output: AgentOutput = {
       type: "stdout",
-      data: cleaned,
+      data,
       timestamp: Date.now(),
     };
     buffer.push(output);
     emitter.emit("output", output);
+    emitter.emit("data", data);
   });
 
   ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
@@ -144,5 +133,16 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
     done: donePromise,
     task,
     agentName,
+    onData(listener: (data: string) => void): () => void {
+      emitter.on("data", listener);
+      return () => emitter.off("data", listener);
+    },
+    resize(cols: number, rows: number) {
+      try {
+        ptyProcess.resize(cols, rows);
+      } catch {
+        // Ignore resize errors on dead processes
+      }
+    },
   };
 }
