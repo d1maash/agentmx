@@ -44,6 +44,11 @@ export function StatusBar({ session, focused }: StatusBarProps) {
               Uptime:{" "}
               <Text>{formatUptime(Date.now() - session.startedAt)}</Text>
             </Text>
+            {session.lastTool && session.status === "running" && (
+              <Text>
+                Tool: <Text color="yellow" bold>{session.lastTool}</Text>
+              </Text>
+            )}
           </>
         ) : (
           <Text dimColor>No agent selected</Text>
