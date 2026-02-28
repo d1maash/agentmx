@@ -1,16 +1,25 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { Box, Text } from "ink";
 import type { AgentSession } from "../hooks/useAgents.js";
 import type { ClaudeActivity } from "../../adapters/types.js";
-import { getRecentTerminalLines } from "../utils/terminal.js";
+import { getTerminalViewportLinesFromOutputBuffer } from "../utils/terminal.js";
 
 interface AgentViewProps {
   session: AgentSession | undefined;
+  scrollOffset?: number;
+  onScrollInfo?: (info: ScrollInfo) => void;
 }
 
-function getLines(session: AgentSession, maxLines: number): string[] {
-  const raw = session.buffer.map((b) => b.data).join("");
-  return getRecentTerminalLines(raw, maxLines);
+export interface ScrollInfo {
+  totalItems: number;
+  maxOffset: number;
+  effectiveOffset: number;
+}
+
+const VIEW_RESERVED_LINES = 10;
+
+function toSingleLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /** Check if a session has activity metadata (Claude Code stream-json) */
@@ -22,7 +31,7 @@ function hasActivityData(session: AgentSession): boolean {
 /** Render a single activity item with appropriate colors */
 function ActivityItem({ activity, data }: { activity?: ClaudeActivity; data: string }) {
   if (!activity) {
-    return <Text wrap="truncate">{data.trimEnd()}</Text>;
+    return <Text wrap="truncate">{toSingleLine(data)}</Text>;
   }
 
   switch (activity.kind) {
@@ -33,6 +42,18 @@ function ActivityItem({ activity, data }: { activity?: ClaudeActivity; data: str
         </Text>
       );
 
+    case "thinking": {
+      const thought = toSingleLine(activity.text);
+      if (!thought && activity.streaming) {
+        return <Text dimColor italic wrap="truncate">thinking...</Text>;
+      }
+      return (
+        <Text dimColor italic wrap="truncate">
+          {thought}{activity.streaming ? " ..." : ""}
+        </Text>
+      );
+    }
+
     case "tool_call": {
       const label = `[${activity.toolName}]`;
       const detail = formatToolDetail(activity.toolName, activity.input);
@@ -40,7 +61,6 @@ function ActivityItem({ activity, data }: { activity?: ClaudeActivity; data: str
         <Text wrap="truncate">
           <Text color="yellow" bold>{label}</Text>
           <Text> {detail || (activity.streaming ? "..." : "")}</Text>
-          {activity.streaming && <Text color="yellow"> </Text>}
         </Text>
       );
     }
@@ -53,9 +73,9 @@ function ActivityItem({ activity, data }: { activity?: ClaudeActivity; data: str
       );
 
     case "text": {
-      const text = activity.text.trimEnd();
+      const text = toSingleLine(activity.text);
       if (!text && activity.streaming) {
-        return <Text dimColor wrap="truncate">thinking...</Text>;
+        return <Text dimColor wrap="truncate">...</Text>;
       }
       return (
         <Text wrap="truncate">
@@ -72,7 +92,7 @@ function ActivityItem({ activity, data }: { activity?: ClaudeActivity; data: str
       );
 
     default:
-      return <Text wrap="truncate">{data.trimEnd()}</Text>;
+      return <Text wrap="truncate">{toSingleLine(data)}</Text>;
   }
 }
 
@@ -104,14 +124,37 @@ function truncateStr(s: string, max: number): string {
 }
 
 /** Renders structured activity view for Claude Code */
-function ActivityView({ session }: { session: AgentSession }) {
-  const maxItems = process.stdout.rows ? process.stdout.rows - 8 : 20;
+function ActivityView({
+  session,
+  scrollOffset,
+  onScrollInfo,
+}: {
+  session: AgentSession;
+  scrollOffset: number;
+  onScrollInfo?: (info: ScrollInfo) => void;
+}) {
+  const maxItems = Math.max(1, (process.stdout.rows ?? 30) - VIEW_RESERVED_LINES);
   // No useMemo — buffer entries are mutated in-place for streaming updates.
   // The 200ms poll in useAgents triggers re-renders that pick up mutations.
-  const items = session.buffer.slice(-Math.max(1, maxItems));
+  const totalItems = session.buffer.length;
+  const maxOffset = Math.max(0, totalItems - maxItems);
+  const effectiveOffset = Math.min(Math.max(0, scrollOffset), maxOffset);
+  const start = Math.max(0, totalItems - maxItems - effectiveOffset);
+  const end = Math.min(totalItems, start + maxItems);
+  const items = session.buffer.slice(start, end);
+
+  useEffect(() => {
+    onScrollInfo?.({ totalItems, maxOffset, effectiveOffset });
+  }, [onScrollInfo, totalItems, maxOffset, effectiveOffset]);
 
   return (
-    <Box flexDirection="column" flexGrow={1} paddingX={1}>
+    <Box
+      flexDirection="column"
+      flexGrow={1}
+      paddingX={1}
+      overflow="hidden"
+      width="100%"
+    >
       {items.length === 0 ? (
         <Text dimColor>Waiting for output from {session.displayName}...</Text>
       ) : (
@@ -145,15 +188,43 @@ function EmptyView() {
 }
 
 /** Renders live output for an active session (raw text fallback) */
-function SessionView({ session }: { session: AgentSession }) {
-  const maxLines = process.stdout.rows ? process.stdout.rows - 8 : 20;
-  const lines = useMemo(
-    () => getLines(session, maxLines),
-    [session.buffer.length, maxLines]
+function SessionView({
+  session,
+  scrollOffset,
+  onScrollInfo,
+}: {
+  session: AgentSession;
+  scrollOffset: number;
+  onScrollInfo?: (info: ScrollInfo) => void;
+}) {
+  const maxLines = Math.max(1, (process.stdout.rows ?? 30) - VIEW_RESERVED_LINES);
+  const viewport = useMemo(
+    () => getTerminalViewportLinesFromOutputBuffer(session.buffer, maxLines, scrollOffset),
+    [session.id, session.buffer.length, maxLines, scrollOffset]
   );
+  const lines = viewport.lines;
+
+  useEffect(() => {
+    onScrollInfo?.({
+      totalItems: viewport.totalLines,
+      maxOffset: viewport.maxOffset,
+      effectiveOffset: viewport.effectiveOffset,
+    });
+  }, [
+    onScrollInfo,
+    viewport.totalLines,
+    viewport.maxOffset,
+    viewport.effectiveOffset,
+  ]);
 
   return (
-    <Box flexDirection="column" flexGrow={1} paddingX={1}>
+    <Box
+      flexDirection="column"
+      flexGrow={1}
+      paddingX={1}
+      overflow="hidden"
+      width="100%"
+    >
       {lines.length === 0 ? (
         <Text dimColor>Waiting for output from {session.displayName}...</Text>
       ) : (
@@ -167,12 +238,28 @@ function SessionView({ session }: { session: AgentSession }) {
   );
 }
 
-export function AgentView({ session }: AgentViewProps) {
+export function AgentView({
+  session,
+  scrollOffset = 0,
+  onScrollInfo,
+}: AgentViewProps) {
   if (!session) {
     return <EmptyView />;
   }
   if (hasActivityData(session)) {
-    return <ActivityView session={session} />;
+    return (
+      <ActivityView
+        session={session}
+        scrollOffset={scrollOffset}
+        onScrollInfo={onScrollInfo}
+      />
+    );
   }
-  return <SessionView session={session} />;
+  return (
+    <SessionView
+      session={session}
+      scrollOffset={scrollOffset}
+      onScrollInfo={onScrollInfo}
+    />
+  );
 }

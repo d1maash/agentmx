@@ -7,6 +7,12 @@ interface UseKeyboardOptions {
   onQuit: () => void;
   onNewAgent: () => void;
   onKillAgent: () => void;
+  onScrollUp?: () => void;
+  onScrollDown?: () => void;
+  onPageUp?: () => void;
+  onPageDown?: () => void;
+  onScrollTop?: () => void;
+  onScrollBottom?: () => void;
 }
 
 export function useKeyboard({
@@ -15,8 +21,19 @@ export function useKeyboard({
   onQuit,
   onNewAgent,
   onKillAgent,
+  onScrollUp,
+  onScrollDown,
+  onPageUp,
+  onPageDown,
+  onScrollTop,
+  onScrollBottom,
 }: UseKeyboardOptions) {
   const [activeIndex, setActiveIndex] = useState(0);
+
+  const isHomeKey = (value: string): boolean =>
+    value === "\u001b[H" || value === "\u001b[1~" || value === "\u001bOH";
+  const isEndKey = (value: string): boolean =>
+    value === "\u001b[F" || value === "\u001b[4~" || value === "\u001bOF";
 
   const clampIndex = useCallback(
     (index: number) => {
@@ -52,6 +69,33 @@ export function useKeyboard({
     }
     if (key.tab && sessionsCount > 0) {
       setActiveIndex((i) => (i + 1) % sessionsCount);
+      return;
+    }
+
+    // Scroll output view
+    if (key.upArrow) {
+      onScrollUp?.();
+      return;
+    }
+    if (key.downArrow) {
+      onScrollDown?.();
+      return;
+    }
+    if (key.pageUp) {
+      onPageUp?.();
+      return;
+    }
+    if (key.pageDown) {
+      onPageDown?.();
+      return;
+    }
+    if (isHomeKey(input)) {
+      onScrollTop?.();
+      return;
+    }
+    if (isEndKey(input)) {
+      onScrollBottom?.();
+      return;
     }
 
     // NOTE: Enter/Esc for input mode is handled by App.tsx.

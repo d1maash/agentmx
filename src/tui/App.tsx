@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { AgentTabs } from "./components/AgentTabs.js";
-import { AgentView } from "./components/AgentView.js";
+import { AgentView, type ScrollInfo } from "./components/AgentView.js";
 import { SplitView } from "./components/SplitView.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { InputBar } from "./components/InputBar.js";
@@ -47,6 +47,12 @@ export function App({
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
+  const [scrollOffsets, setScrollOffsets] = useState<Record<string, number>>({});
+  const [activeScrollInfo, setActiveScrollInfo] = useState<ScrollInfo>({
+    totalItems: 0,
+    maxOffset: 0,
+    effectiveOffset: 0,
+  });
 
   const { activeIndex } = useKeyboard({
     sessionsCount: sessions.length,
@@ -65,6 +71,56 @@ export function App({
       if (session) {
         await stopAgent(session.id);
       }
+    },
+    onScrollUp: () => {
+      const session = sessions[activeIndex];
+      if (!session) return;
+      setScrollOffsets((prev) => {
+        const current = prev[session.id] ?? 0;
+        return { ...prev, [session.id]: current + 1 };
+      });
+    },
+    onScrollDown: () => {
+      const session = sessions[activeIndex];
+      if (!session) return;
+      setScrollOffsets((prev) => {
+        const current = prev[session.id] ?? 0;
+        const next = Math.max(0, current - 1);
+        if (next === current) return prev;
+        return { ...prev, [session.id]: next };
+      });
+    },
+    onPageUp: () => {
+      const session = sessions[activeIndex];
+      if (!session) return;
+      setScrollOffsets((prev) => {
+        const current = prev[session.id] ?? 0;
+        return { ...prev, [session.id]: current + 10 };
+      });
+    },
+    onPageDown: () => {
+      const session = sessions[activeIndex];
+      if (!session) return;
+      setScrollOffsets((prev) => {
+        const current = prev[session.id] ?? 0;
+        const next = Math.max(0, current - 10);
+        if (next === current) return prev;
+        return { ...prev, [session.id]: next };
+      });
+    },
+    onScrollTop: () => {
+      const session = sessions[activeIndex];
+      if (!session) return;
+      setScrollOffsets((prev) => ({ ...prev, [session.id]: Number.MAX_SAFE_INTEGER }));
+    },
+    onScrollBottom: () => {
+      const session = sessions[activeIndex];
+      if (!session) return;
+      setScrollOffsets((prev) => {
+        const current = prev[session.id] ?? 0;
+        if (current === 0) return prev;
+        return { ...prev, [session.id]: 0 };
+      });
     },
   });
 
@@ -91,12 +147,35 @@ export function App({
   ]);
 
   const activeSession = sessions[activeIndex];
+  const activeSessionId = activeSession?.id;
+  const activeScrollOffset = activeSessionId ? (scrollOffsets[activeSessionId] ?? 0) : 0;
+
+  const handleScrollInfo = useCallback(
+    (info: ScrollInfo) => {
+      setActiveScrollInfo(info);
+      if (!activeSessionId) return;
+      setScrollOffsets((prev) => {
+        const current = prev[activeSessionId] ?? 0;
+        if (current === info.effectiveOffset) return prev;
+        return { ...prev, [activeSessionId]: info.effectiveOffset };
+      });
+    },
+    [activeSessionId]
+  );
 
   React.useEffect(() => {
     if (!activeSession) {
       setInputFocused(false);
     }
   }, [activeSession]);
+
+  React.useEffect(() => {
+    setActiveScrollInfo({
+      totalItems: 0,
+      maxOffset: 0,
+      effectiveOffset: 0,
+    });
+  }, [activeSessionId]);
 
   // Enter/Esc toggles input mode in the built-in text input.
   useInput((_input, key) => {
@@ -155,7 +234,7 @@ export function App({
   // Split view for parallel mode
   if (splitView && sessions.length > 1) {
     return (
-      <Box flexDirection="column" height="100%">
+      <Box flexDirection="column" height="100%" width="100%" overflow="hidden">
         <SplitView sessions={sessions} direction={config.ui.split_view} />
         {activeSession && (
           <InputBar
@@ -164,24 +243,40 @@ export function App({
             onSubmit={(text) => sendInput(activeSession.id, text)}
           />
         )}
-        <StatusBar session={activeSession} focused={inputFocused} />
+        <StatusBar
+          session={activeSession}
+          focused={inputFocused}
+          scrollOffset={activeScrollOffset}
+          maxScrollOffset={activeScrollInfo.maxOffset}
+        />
       </Box>
     );
   }
 
   // Normal TUI view
   return (
-    <Box flexDirection="column" height="100%">
+    <Box flexDirection="column" height="100%" width="100%" overflow="hidden">
       <AgentTabs sessions={sessions} activeIndex={activeIndex} />
       {error && (
-        <Box paddingX={1} borderStyle="single" borderColor="red">
+        <Box paddingX={1} borderStyle="single" borderColor="red" width="100%">
           <Text color="red" bold>Error: </Text>
           <Text color="red">{error}</Text>
           <Text dimColor> (press any key to dismiss)</Text>
         </Box>
       )}
-      <Box borderStyle="single" borderColor="gray" flexGrow={1}>
-        <AgentView session={activeSession} />
+      <Box
+        borderStyle="single"
+        borderColor="gray"
+        flexGrow={1}
+        width="100%"
+        overflow="hidden"
+      >
+        <AgentView
+          key={activeSession?.id ?? "none"}
+          session={activeSession}
+          scrollOffset={activeScrollOffset}
+          onScrollInfo={handleScrollInfo}
+        />
       </Box>
       {activeSession && (
         <InputBar
@@ -190,7 +285,12 @@ export function App({
           onSubmit={(text) => sendInput(activeSession.id, text)}
         />
       )}
-      <StatusBar session={activeSession} focused={inputFocused} />
+      <StatusBar
+        session={activeSession}
+        focused={inputFocused}
+        scrollOffset={activeScrollOffset}
+        maxScrollOffset={activeScrollInfo.maxOffset}
+      />
     </Box>
   );
 }

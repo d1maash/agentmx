@@ -58,7 +58,7 @@ export function AgentTabs({ sessions, activeIndex }: AgentTabsProps) {
   );
 
   return (
-    <Box paddingX={1} gap={1} flexWrap="nowrap">
+    <Box paddingX={1} gap={1} flexWrap="nowrap" overflow="hidden" width="100%">
       {sessions.map((session, index) => {
         const isActive = index === activeIndex;
         const color = statusColor(session.status);

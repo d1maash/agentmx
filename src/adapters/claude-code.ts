@@ -265,7 +265,7 @@ function createClaudeStreamJson(options: {
 
   // --- Streaming state for --include-partial-messages ---
   const activeBlocks = new Map<number, {
-    type: "text" | "tool_use";
+    type: "thinking" | "text" | "tool_use";
     bufferIndex: number;
     accText: string;
     accJson: string;
@@ -308,7 +308,21 @@ function createClaudeStreamJson(options: {
         if (!block) break;
         const blockType = block.type as string;
 
-        if (blockType === "text") {
+        if (blockType === "thinking") {
+          const out: AgentOutput = {
+            type: "stdout",
+            data: "thinking...\n",
+            timestamp: Date.now(),
+            activity: { kind: "thinking", text: "", streaming: true },
+          };
+          pushOutput(out);
+          activeBlocks.set(index, {
+            type: "thinking",
+            bufferIndex: buffer.length - 1,
+            accText: "",
+            accJson: "",
+          });
+        } else if (blockType === "text") {
           const out: AgentOutput = {
             type: "stdout",
             data: "",
@@ -352,9 +366,21 @@ function createClaudeStreamJson(options: {
         const block = activeBlocks.get(index);
         if (!block) break;
 
-        if (deltaType === "text_delta" && block.type === "text") {
+        if (deltaType === "thinking_delta" && block.type === "thinking") {
+          const chunk = (delta.thinking as string) ?? "";
+          if (chunk) {
+            block.accText += chunk;
+            const entry = buffer[block.bufferIndex];
+            if (entry) {
+              entry.data = block.accText;
+              const act = entry.activity;
+              if (act && act.kind === "thinking") {
+                act.text = block.accText;
+              }
+            }
+          }
+        } else if (deltaType === "text_delta" && block.type === "text") {
           block.accText += delta.text as string;
-          // Mutate buffer entry in-place for live updates
           const entry = buffer[block.bufferIndex];
           if (entry) {
             entry.data = block.accText;
@@ -373,7 +399,6 @@ function createClaudeStreamJson(options: {
               const act = entry.activity;
               if (act && act.kind === "tool_call") act.input = input;
             } catch {
-              // JSON not complete yet — show partial hint
               const hint = block.accJson.replace(/[{}"]/g, "").trim();
               if (hint) entry.data = `[${block.toolName}] ${truncate(hint, 60)}\n`;
             }
@@ -403,6 +428,10 @@ function createClaudeStreamJson(options: {
           if (block.type === "text") {
             const act = entry.activity;
             if (act && act.kind === "text") act.streaming = false;
+          }
+          if (block.type === "thinking") {
+            const act = entry.activity;
+            if (act && act.kind === "thinking") act.streaming = false;
           }
         }
         activeBlocks.delete(index);
