@@ -249,6 +249,14 @@ function createClaudeStreamJson(options: {
   const child = spawn("claude", args, { cwd, env, stdio: "pipe" });
   currentStatus = "running";
 
+  // Immediate feedback so the view isn't blank while Claude starts
+  pushOutput({
+    type: "system",
+    data: `Starting Claude Code…\n`,
+    timestamp: Date.now(),
+    activity: { kind: "init", model: "…", sessionId: "", tools: [] },
+  });
+
   let lineBuf = "";
   let stderr = "";
 
@@ -273,7 +281,10 @@ function createClaudeStreamJson(options: {
   });
 
   child.stderr.on("data", (chunk: Buffer | string) => {
-    stderr += chunk.toString();
+    const text = chunk.toString();
+    stderr += text;
+    // Show stderr immediately so the user sees errors/warnings in real-time
+    pushOutput({ type: "stderr", data: text.endsWith("\n") ? text : `${text}\n`, timestamp: Date.now() });
   });
 
   child.on("error", (err) => {
@@ -298,10 +309,6 @@ function createClaudeStreamJson(options: {
       } catch {
         pushOutput({ type: "stdout", data: `${lineBuf.trim()}\n`, timestamp: Date.now() });
       }
-    }
-
-    if (stderr.trim()) {
-      pushOutput({ type: "stderr", data: stderr.endsWith("\n") ? stderr : `${stderr}\n`, timestamp: Date.now() });
     }
 
     currentStatus = code && code !== 0 ? "error" : "done";
@@ -430,7 +437,7 @@ function createClaudeTextBridge(options: {
     processing = true;
     currentStatus = "running";
 
-    const args = ["-p", "--output-format", "stream-json", "--verbose"];
+    const args = ["-p", "--output-format", "stream-json"];
     if (sessionId) {
       args.push("--resume", sessionId);
     }
@@ -452,26 +459,43 @@ function createClaudeTextBridge(options: {
         const trimmed = line.trim();
         if (!trimmed) continue;
         try {
-          const event = JSON.parse(trimmed) as Record<string, unknown>;
+          const event = JSON.parse(trimmed) as {
+            type?: string;
+            subtype?: string;
+            session_id?: string;
+            is_error?: boolean;
+            result?: string;
+            message?: {
+              content?: Array<{ type: string; text?: string }>;
+            };
+          };
 
           // Capture session_id from any event that has it
           if (typeof event.session_id === "string") {
             sessionId = event.session_id;
           }
 
-          const outputs = processStreamEvent(event);
-          for (const out of outputs) {
-            pushOutput(out.data, out.type);
-            // Patch the last buffer entry with activity metadata
-            if (out.activity && buffer.length > 0) {
-              buffer[buffer.length - 1].activity = out.activity;
+          // Stream assistant text content immediately
+          if (event.type === "assistant" && Array.isArray(event.message?.content)) {
+            for (const block of event.message!.content) {
+              if (block.type === "text" && block.text) {
+                pushOutput(block.text.endsWith("\n") ? block.text : `${block.text}\n`, "stdout");
+                hasOutput = true;
+              }
             }
-            hasOutput = true;
           }
 
-          // Handle error status from result events
-          if (event.type === "result" && event.is_error) {
-            currentStatus = "error";
+          // Handle result event
+          if (event.type === "result") {
+            if (event.is_error) {
+              currentStatus = "error";
+            }
+            // If we haven't shown any output yet, show the result text
+            if (!hasOutput && typeof event.result === "string" && event.result.length > 0) {
+              const text = event.result.startsWith("\n") ? event.result.slice(1) : event.result;
+              pushOutput(text.endsWith("\n") ? text : `${text}\n`, "stdout");
+              hasOutput = true;
+            }
           }
         } catch {
           // Not valid JSON — push raw line
@@ -500,17 +524,25 @@ function createClaudeTextBridge(options: {
       // Process remaining line buffer
       if (lineBuf.trim()) {
         try {
-          const event = JSON.parse(lineBuf.trim()) as Record<string, unknown>;
+          const event = JSON.parse(lineBuf.trim()) as {
+            type?: string;
+            session_id?: string;
+            is_error?: boolean;
+            result?: string;
+            message?: {
+              content?: Array<{ type: string; text?: string }>;
+            };
+          };
           if (typeof event.session_id === "string") {
             sessionId = event.session_id;
           }
-          const outputs = processStreamEvent(event);
-          for (const out of outputs) {
-            pushOutput(out.data, out.type);
-            if (out.activity && buffer.length > 0) {
-              buffer[buffer.length - 1].activity = out.activity;
+          if (event.type === "assistant" && Array.isArray(event.message?.content)) {
+            for (const block of event.message!.content) {
+              if (block.type === "text" && block.text) {
+                pushOutput(block.text.endsWith("\n") ? block.text : `${block.text}\n`, "stdout");
+                hasOutput = true;
+              }
             }
-            hasOutput = true;
           }
           if (event.type === "result" && event.is_error) {
             currentStatus = "error";
@@ -520,7 +552,9 @@ function createClaudeTextBridge(options: {
         }
       }
 
-      if (stderr.trim()) {
+      if (!hasOutput && stderr.trim()) {
+        pushOutput(stderr.endsWith("\n") ? stderr : `${stderr}\n`, "stderr");
+      } else if (stderr.trim()) {
         pushOutput(stderr.endsWith("\n") ? stderr : `${stderr}\n`, "stderr");
       }
 

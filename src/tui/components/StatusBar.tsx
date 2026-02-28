@@ -18,9 +18,13 @@ function formatUptime(ms: number): string {
 }
 
 export function StatusBar({ session, focused }: StatusBarProps) {
+  const columns = process.stdout.columns ?? 120;
+  const compact = columns < 120;
+  const showDetails = columns >= 140;
+
   return (
     <Box paddingX={1} justifyContent="space-between">
-      <Box gap={2}>
+      <Box gap={compact ? 1 : 2}>
         {session ? (
           <>
             <Text>
@@ -40,11 +44,13 @@ export function StatusBar({ session, focused }: StatusBarProps) {
                 {session.status}
               </Text>
             </Text>
-            <Text>
-              Uptime:{" "}
-              <Text>{formatUptime(Date.now() - session.startedAt)}</Text>
-            </Text>
-            {session.lastTool && session.status === "running" && (
+            {!compact && (
+              <Text>
+                Uptime:{" "}
+                <Text>{formatUptime(Date.now() - session.startedAt)}</Text>
+              </Text>
+            )}
+            {showDetails && session.lastTool && session.status === "running" && (
               <Text>
                 Tool: <Text color="yellow" bold>{session.lastTool}</Text>
               </Text>
@@ -57,7 +63,9 @@ export function StatusBar({ session, focused }: StatusBarProps) {
       <Box gap={1}>
         <Text dimColor>{focused ? "INPUT" : "VIEW"}</Text>
         <Text dimColor>
-          1-9 switch | Enter input | Esc close input | Ctrl+N new | Ctrl+W kill | Ctrl+Q quit
+          {compact
+            ? "1-9 | Enter | Esc | Ctrl+N | Ctrl+W | Ctrl+Q"
+            : "1-9 switch | Enter input | Esc close input | Ctrl+N new | Ctrl+W kill | Ctrl+Q quit"}
         </Text>
       </Box>
     </Box>

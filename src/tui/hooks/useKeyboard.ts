@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useInput } from "ink";
 
 interface UseKeyboardOptions {
@@ -18,6 +18,19 @@ export function useKeyboard({
 }: UseKeyboardOptions) {
   const [activeIndex, setActiveIndex] = useState(0);
 
+  const clampIndex = useCallback(
+    (index: number) => {
+      if (sessionsCount <= 0) return 0;
+      return Math.max(0, Math.min(index, sessionsCount - 1));
+    },
+    [sessionsCount]
+  );
+
+  // Keep active tab in range when sessions are added/removed.
+  useEffect(() => {
+    setActiveIndex((i) => clampIndex(i));
+  }, [clampIndex]);
+
   useInput((input, key) => {
     if (!enabled) return;
 
@@ -31,14 +44,14 @@ export function useKeyboard({
     }
 
     // Arrow / Tab navigation
-    if (key.leftArrow) {
-      setActiveIndex((i) => Math.max(0, i - 1));
+    if (key.leftArrow && sessionsCount > 0) {
+      setActiveIndex((i) => clampIndex(i - 1));
     }
-    if (key.rightArrow) {
-      setActiveIndex((i) => Math.min(sessionsCount - 1, i + 1));
+    if (key.rightArrow && sessionsCount > 0) {
+      setActiveIndex((i) => clampIndex(i + 1));
     }
-    if (key.tab) {
-      setActiveIndex((i) => (i + 1) % Math.max(1, sessionsCount));
+    if (key.tab && sessionsCount > 0) {
+      setActiveIndex((i) => (i + 1) % sessionsCount);
     }
 
     // NOTE: Enter/Esc for input mode is handled by App.tsx.
@@ -61,11 +74,9 @@ export function useKeyboard({
 
   const setActive = useCallback(
     (index: number) => {
-      if (index >= 0 && index < sessionsCount) {
-        setActiveIndex(index);
-      }
+      setActiveIndex(clampIndex(index));
     },
-    [sessionsCount]
+    [clampIndex]
   );
 
   // focused/setFocused kept for compatibility.
