@@ -3,6 +3,7 @@ import { useInput } from "ink";
 
 interface UseKeyboardOptions {
   sessionsCount: number;
+  enabled?: boolean;
   onQuit: () => void;
   onNewAgent: () => void;
   onKillAgent: () => void;
@@ -10,6 +11,7 @@ interface UseKeyboardOptions {
 
 export function useKeyboard({
   sessionsCount,
+  enabled = true,
   onQuit,
   onNewAgent,
   onKillAgent,
@@ -17,6 +19,8 @@ export function useKeyboard({
   const [activeIndex, setActiveIndex] = useState(0);
 
   useInput((input, key) => {
+    if (!enabled) return;
+
     // Quick switch: number keys 1-9
     if (input >= "1" && input <= "9" && !key.ctrl && !key.meta) {
       const idx = parseInt(input, 10) - 1;
@@ -37,8 +41,7 @@ export function useKeyboard({
       setActiveIndex((i) => (i + 1) % Math.max(1, sessionsCount));
     }
 
-    // NOTE: Enter (focus) is handled by App.tsx directly because
-    // it triggers raw passthrough via onFocus callback
+    // NOTE: Enter/Esc for input mode is handled by App.tsx.
 
     // New agent (Ctrl+N)
     if (input === "n" && key.ctrl) {
@@ -65,6 +68,6 @@ export function useKeyboard({
     [sessionsCount]
   );
 
-  // focused is always false in Ink TUI — real focus = raw passthrough
+  // focused/setFocused kept for compatibility.
   return { activeIndex, focused: false, setFocused: () => {}, setActive };
 }

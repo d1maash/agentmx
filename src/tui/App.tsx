@@ -4,6 +4,7 @@ import { AgentTabs } from "./components/AgentTabs.js";
 import { AgentView } from "./components/AgentView.js";
 import { SplitView } from "./components/SplitView.js";
 import { StatusBar } from "./components/StatusBar.js";
+import { InputBar } from "./components/InputBar.js";
 import { useAgents } from "./hooks/useAgents.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import type { ProcessManager } from "../core/process-manager.js";
@@ -16,9 +17,7 @@ interface AppProps {
   initialAgent?: string;
   parallelAgents?: string[];
   splitView?: boolean;
-  /** Focus an existing running agent (raw passthrough) */
-  onFocus?: (sessionId: string) => void;
-  /** Start a new agent and immediately enter raw passthrough */
+  /** Optional external handler for starting a new agent. */
   onStartFresh?: (agentName: string) => void;
   /** Quit the app */
   onQuit?: () => void;
@@ -31,7 +30,6 @@ export function App({
   initialAgent,
   parallelAgents,
   splitView = false,
-  onFocus,
   onStartFresh,
   onQuit,
 }: AppProps) {
@@ -40,6 +38,7 @@ export function App({
     sessions,
     startAgent,
     stopAgent,
+    sendInput,
     adapters,
     error,
     clearError,
@@ -47,9 +46,11 @@ export function App({
 
   const [showNewAgent, setShowNewAgent] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
 
   const { activeIndex } = useKeyboard({
     sessionsCount: sessions.length,
+    enabled: !showNewAgent && !inputFocused,
     onQuit: async () => {
       if (onQuit) {
         onQuit();
@@ -89,35 +90,48 @@ export function App({
     startAgent,
   ]);
 
-  // Enter → focus on existing agent (raw passthrough)
-  useInput((_input, key) => {
-    if (key.return && !showNewAgent && sessions.length > 0) {
-      const session = sessions[activeIndex];
-      if (session && onFocus) {
-        onFocus(session.id);
-      }
-    }
-  });
+  const activeSession = sessions[activeIndex];
 
-  // Select agent from menu → spawn fresh in raw mode
+  React.useEffect(() => {
+    if (!activeSession) {
+      setInputFocused(false);
+    }
+  }, [activeSession]);
+
+  // Enter/Esc toggles input mode in the built-in text input.
+  useInput((_input, key) => {
+    if (showNewAgent || sessions.length === 0) return;
+
+    if (key.escape && inputFocused) {
+      setInputFocused(false);
+      return;
+    }
+
+    if (key.return && !inputFocused) {
+      setInputFocused(true);
+    }
+  }, { isActive: !showNewAgent });
+
+  // Select agent from menu.
   const handleNewAgent = useCallback(
     (agentName: string) => {
       const agent = agentName.trim();
       setShowNewAgent(false);
-      if (adapters.has(agent) && onStartFresh) {
-        // Don't spawn here — let interactive.ts spawn in raw mode
+      if (!adapters.has(agent)) return;
+
+      if (onStartFresh) {
         onStartFresh(agent);
+      } else {
+        startAgent(agent, "interactive").catch(() => {});
       }
     },
-    [adapters, onStartFresh]
+    [adapters, onStartFresh, startAgent]
   );
 
   // Dismiss error
   useInput(() => {
     if (error) clearError();
   });
-
-  const activeSession = sessions[activeIndex];
 
   // New agent prompt
   if (showNewAgent) {
@@ -143,7 +157,14 @@ export function App({
     return (
       <Box flexDirection="column" height="100%">
         <SplitView sessions={sessions} direction={config.ui.split_view} />
-        <StatusBar session={activeSession} focused={false} />
+        {activeSession && (
+          <InputBar
+            agentName={activeSession.displayName}
+            focused={inputFocused}
+            onSubmit={(text) => sendInput(activeSession.id, text)}
+          />
+        )}
+        <StatusBar session={activeSession} focused={inputFocused} />
       </Box>
     );
   }
@@ -162,7 +183,14 @@ export function App({
       <Box borderStyle="single" borderColor="gray" flexGrow={1}>
         <AgentView session={activeSession} />
       </Box>
-      <StatusBar session={activeSession} focused={false} />
+      {activeSession && (
+        <InputBar
+          agentName={activeSession.displayName}
+          focused={inputFocused}
+          onSubmit={(text) => sendInput(activeSession.id, text)}
+        />
+      )}
+      <StatusBar session={activeSession} focused={inputFocused} />
     </Box>
   );
 }

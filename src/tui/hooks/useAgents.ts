@@ -12,6 +12,8 @@ export interface AgentSession {
   status: AgentStatus;
   buffer: AgentOutput[];
   startedAt: number;
+  /** Last tool name invoked (computed from activity buffer, Claude Code only) */
+  lastTool?: string;
 }
 
 export function useAgents(processManager: ProcessManager, config: Config) {
@@ -23,16 +25,28 @@ export function useAgents(processManager: ProcessManager, config: Config) {
   const refreshSessions = useCallback(() => {
     const pmSessions = processManager.getSessions();
     setSessions(
-      pmSessions.map((s) => ({
-        id: s.id,
-        agentName: s.agentName,
-        displayName:
-          adapters.get(s.agentName)?.info.displayName ?? s.agentName,
-        task: s.task,
-        status: s.process.status,
-        buffer: s.process.buffer,
-        startedAt: s.startedAt,
-      }))
+      pmSessions.map((s) => {
+        // Compute lastTool from most recent tool_call activity
+        let lastTool: string | undefined;
+        for (let i = s.process.buffer.length - 1; i >= 0; i--) {
+          const act = s.process.buffer[i].activity;
+          if (act?.kind === "tool_call") {
+            lastTool = act.toolName;
+            break;
+          }
+        }
+        return {
+          id: s.id,
+          agentName: s.agentName,
+          displayName:
+            adapters.get(s.agentName)?.info.displayName ?? s.agentName,
+          task: s.task,
+          status: s.process.status,
+          buffer: s.process.buffer,
+          startedAt: s.startedAt,
+          lastTool,
+        };
+      })
     );
   }, [processManager, adapters]);
 

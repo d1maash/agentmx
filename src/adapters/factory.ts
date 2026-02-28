@@ -21,7 +21,10 @@ export function createAdapters(config: Config): Map<string, AgentAdapter> {
         adapter = new ClaudeCodeAdapter();
         break;
       case "codex":
-        adapter = new CodexAdapter();
+        adapter = new CodexAdapter({
+          defaultArgs: agentConfig.args,
+          defaultEnv: agentConfig.env,
+        });
         break;
       case "aider":
         adapter = new AiderAdapter();
