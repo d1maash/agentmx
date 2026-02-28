@@ -10,7 +10,12 @@ import type {
 import { execSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
+import { appendFileSync } from "node:fs";
 import { spawnPty } from "./pty-helpers.js";
+
+function debugLog(msg: string) {
+  try { appendFileSync("/tmp/agentmux-debug.log", `${Date.now()} ${msg}\n`); } catch {}
+}
 
 const require = createRequire(import.meta.url);
 const pty = require("node-pty");
@@ -276,6 +281,10 @@ function createClaudeStreamJson(options: {
 
   function handleParsedEvent(event: Record<string, unknown>) {
     const type = event.type as string | undefined;
+    const subtype = (type === "stream_event" && event.event)
+      ? (event.event as Record<string, unknown>).type as string
+      : undefined;
+    debugLog(`EVENT: type=${type} sub=${subtype ?? event.subtype ?? "-"} bufLen=${buffer.length}`);
 
     if (type === "stream_event") {
       hasStreamEvents = true;
@@ -285,12 +294,16 @@ function createClaudeStreamJson(options: {
     }
 
     // Skip duplicate assistant messages — already shown via stream events
-    if (type === "assistant" && hasStreamEvents) return;
+    if (type === "assistant" && hasStreamEvents) {
+      debugLog("SKIP assistant (has stream events)");
+      return;
+    }
     // Skip rate limit events
     if (type === "rate_limit_event") return;
 
     // Process other events normally (system/init, user/tool_result, result/cost)
     const outputs = processStreamEvent(event);
+    debugLog(`processStreamEvent => ${outputs.length} outputs`);
     for (const out of outputs) pushOutput(out);
   }
 
@@ -445,6 +458,8 @@ function createClaudeStreamJson(options: {
   }
 
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", task];
+  debugLog(`SPAWN: claude ${args.join(" ")}`);
+  debugLog(`CWD: ${cwd}`);
   // Claude requires a TTY — use node-pty. Wide cols to prevent line wrapping in JSON.
   const ptyProcess = pty.spawn("claude", args, {
     name: "xterm-256color",
@@ -453,10 +468,14 @@ function createClaudeStreamJson(options: {
     cwd,
     env,
   });
+  debugLog(`PID: ${ptyProcess.pid}`);
 
   let lineBuf = "";
 
+  let chunkCount = 0;
   ptyProcess.onData((rawData: string) => {
+    chunkCount++;
+    if (chunkCount <= 5) debugLog(`CHUNK#${chunkCount} len=${rawData.length} first80=${JSON.stringify(rawData.slice(0, 80))}`);
     lineBuf += stripAnsi(rawData);
     const lines = lineBuf.split("\n");
     lineBuf = lines.pop() ?? "";
@@ -467,13 +486,15 @@ function createClaudeStreamJson(options: {
       try {
         const event = JSON.parse(trimmed) as Record<string, unknown>;
         handleParsedEvent(event);
-      } catch {
+      } catch (e) {
+        debugLog(`JSON_ERR: ${(e as Error).message} line=${trimmed.slice(0, 100)}`);
         pushOutput({ type: "stdout", data: `${trimmed}\n`, timestamp: Date.now() });
       }
     }
   });
 
   ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+    debugLog(`EXIT: code=${exitCode} bufLen=${buffer.length}`);
     // Flush remaining line buffer
     if (lineBuf.trim()) {
       const trimmed = lineBuf.trim();
