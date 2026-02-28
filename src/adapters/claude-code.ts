@@ -8,9 +8,12 @@ import type {
   SpawnOptions,
 } from "./types.js";
 import { execSync } from "node:child_process";
-import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { createRequire } from "node:module";
 import { spawnPty } from "./pty-helpers.js";
+
+const require = createRequire(import.meta.url);
+const pty = require("node-pty");
 
 /**
  * Build a clean env for spawning Claude sub-processes.
@@ -221,7 +224,16 @@ function processStreamEvent(event: Record<string, unknown>): AgentOutput[] {
   return outputs;
 }
 
-/** Spawn Claude in one-shot task mode with structured stream-json output */
+/** Strip ANSI escape sequences from a string */
+function stripAnsi(s: string): string {
+  return s
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "")
+    .replace(/\x1B[@-Z\\-_]/g, "")
+    .replace(/\r/g, "");
+}
+
+/** Spawn Claude in one-shot task mode with structured stream-json output via PTY */
 function createClaudeStreamJson(options: {
   task: string;
   cwd: string;
@@ -230,7 +242,7 @@ function createClaudeStreamJson(options: {
   const { task, cwd, env } = options;
   const emitter = new EventEmitter();
   const buffer: AgentOutput[] = [];
-  let currentStatus: AgentStatus = "spawning";
+  let currentStatus: AgentStatus = "running";
   let doneResolved = false;
   let resolveDone!: (value: { exitCode: number }) => void;
 
@@ -251,18 +263,21 @@ function createClaudeStreamJson(options: {
     emitter.emit("data", out.data);
   };
 
-  // -p doesn't support stream-json, so pipe the prompt via stdin instead.
-  const args = ["--output-format", "stream-json", "--verbose"];
-  const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-  child.stdin.write(task + "\n");
-  child.stdin.end();
-  currentStatus = "running";
+  const args = ["-p", "--output-format", "stream-json", "--verbose", task];
+  // Claude requires a TTY — use node-pty. Wide cols to prevent line wrapping in JSON.
+  const ptyProcess = pty.spawn("claude", args, {
+    name: "xterm-256color",
+    cols: 2000,
+    rows: 40,
+    cwd,
+    env,
+  });
 
   let lineBuf = "";
-  let stderr = "";
 
-  child.stdout.on("data", (chunk: Buffer | string) => {
-    lineBuf += chunk.toString();
+  ptyProcess.onData((rawData: string) => {
+    // Strip ANSI codes and \r, then parse NDJSON lines
+    lineBuf += stripAnsi(rawData);
     const lines = lineBuf.split("\n");
     lineBuf = lines.pop() ?? "";
 
@@ -276,44 +291,29 @@ function createClaudeStreamJson(options: {
           pushOutput(out);
         }
       } catch {
+        // Non-JSON line (error messages, etc.) — show as-is
         pushOutput({ type: "stdout", data: `${trimmed}\n`, timestamp: Date.now() });
       }
     }
   });
 
-  child.stderr.on("data", (chunk: Buffer | string) => {
-    const text = chunk.toString();
-    stderr += text;
-    // Show stderr immediately so the user sees errors/warnings in real-time
-    pushOutput({ type: "stderr", data: text.endsWith("\n") ? text : `${text}\n`, timestamp: Date.now() });
-  });
-
-  child.on("error", (err) => {
-    pushOutput({
-      type: "stderr",
-      data: `Claude launch error: ${err.message}\n`,
-      timestamp: Date.now(),
-    });
-    currentStatus = "error";
-    resolveExit(1);
-  });
-
-  child.on("close", (code) => {
-    // Process remaining line buffer
+  ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+    // Flush remaining line buffer
     if (lineBuf.trim()) {
+      const trimmed = lineBuf.trim();
       try {
-        const event = JSON.parse(lineBuf.trim()) as Record<string, unknown>;
+        const event = JSON.parse(trimmed) as Record<string, unknown>;
         const outputs = processStreamEvent(event);
         for (const out of outputs) {
           pushOutput(out);
         }
       } catch {
-        pushOutput({ type: "stdout", data: `${lineBuf.trim()}\n`, timestamp: Date.now() });
+        pushOutput({ type: "stdout", data: `${trimmed}\n`, timestamp: Date.now() });
       }
     }
 
-    currentStatus = code && code !== 0 ? "error" : "done";
-    resolveExit(code ?? 0);
+    currentStatus = exitCode === 0 ? "done" : "error";
+    resolveExit(exitCode);
   });
 
   const output: AsyncIterable<AgentOutput> = {
@@ -322,7 +322,7 @@ function createClaudeStreamJson(options: {
       let resolve: ((value: IteratorResult<AgentOutput>) => void) | null = null;
       let isDone = false;
 
-      const onOutput = (out: AgentOutput) => {
+      emitter.on("output", (out: AgentOutput) => {
         if (resolve) {
           const r = resolve;
           resolve = null;
@@ -330,19 +330,16 @@ function createClaudeStreamJson(options: {
         } else {
           localQueue.push(out);
         }
-      };
+      });
 
-      const onExit = () => {
+      emitter.on("exit", () => {
         isDone = true;
         if (resolve) {
           const r = resolve;
           resolve = null;
           r({ value: undefined as unknown as AgentOutput, done: true });
         }
-      };
-
-      emitter.on("output", onOutput);
-      emitter.on("exit", onExit);
+      });
 
       return {
         next(): Promise<IteratorResult<AgentOutput>> {
@@ -360,18 +357,23 @@ function createClaudeStreamJson(options: {
 
   return {
     send(_input: string) {
-      // One-shot mode — no interactive input supported
+      // One-shot mode — no interactive input
     },
     output,
     get status() { return currentStatus; },
     set status(s: AgentStatus) { currentStatus = s; },
     buffer,
     async kill() {
-      if (!child.killed) {
-        child.kill("SIGTERM");
-        setTimeout(() => {
-          if (!child.killed) child.kill("SIGKILL");
-        }, 2000);
+      try {
+        const treeKill = (await import("tree-kill")).default;
+        await new Promise<void>((resolve, reject) => {
+          treeKill(ptyProcess.pid, "SIGTERM", (err?: Error) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      } catch {
+        ptyProcess.kill();
       }
       currentStatus = "done";
       resolveExit(0);
@@ -383,12 +385,13 @@ function createClaudeStreamJson(options: {
       emitter.on("data", listener);
       return () => emitter.off("data", listener);
     },
-    resize() {
-      // No-op for piped mode.
+    resize(cols: number, rows: number) {
+      try { ptyProcess.resize(Math.max(cols, 200), rows); } catch { /* ignore */ }
     },
   };
 }
 
+/** Interactive text bridge — spawns a PTY per prompt, parses stream-json */
 function createClaudeTextBridge(options: {
   cwd: string;
   env: Record<string, string>;
@@ -399,7 +402,7 @@ function createClaudeTextBridge(options: {
   const queue: string[] = [];
 
   let currentStatus: AgentStatus = "idle";
-  let activeChild: ReturnType<typeof spawn> | null = null;
+  let activePty: ReturnType<typeof pty.spawn> | null = null;
   let pendingInput = "";
   let sessionId: string | null = null;
   let stopped = false;
@@ -438,21 +441,26 @@ function createClaudeTextBridge(options: {
     processing = true;
     currentStatus = "running";
 
-    const args = ["-p", "--output-format", "stream-json"];
+    const args = ["-p", "--output-format", "stream-json", "--verbose"];
     if (sessionId) {
       args.push("--resume", sessionId);
     }
     args.push(prompt);
 
-    const child = spawn("claude", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-    activeChild = child;
+    const child = pty.spawn("claude", args, {
+      name: "xterm-256color",
+      cols: 2000,
+      rows: 40,
+      cwd,
+      env,
+    });
+    activePty = child;
 
     let lineBuf = "";
-    let stderr = "";
     let hasOutput = false;
 
-    child.stdout.on("data", (chunk: Buffer | string) => {
-      lineBuf += chunk.toString();
+    child.onData((rawData: string) => {
+      lineBuf += stripAnsi(rawData);
       const lines = lineBuf.split("\n");
       lineBuf = lines.pop() ?? "";
 
@@ -471,12 +479,10 @@ function createClaudeTextBridge(options: {
             };
           };
 
-          // Capture session_id from any event that has it
           if (typeof event.session_id === "string") {
             sessionId = event.session_id;
           }
 
-          // Stream assistant text content immediately
           if (event.type === "assistant" && Array.isArray(event.message?.content)) {
             for (const block of event.message!.content) {
               if (block.type === "text" && block.text) {
@@ -486,12 +492,10 @@ function createClaudeTextBridge(options: {
             }
           }
 
-          // Handle result event
           if (event.type === "result") {
             if (event.is_error) {
               currentStatus = "error";
             }
-            // If we haven't shown any output yet, show the result text
             if (!hasOutput && typeof event.result === "string" && event.result.length > 0) {
               const text = event.result.startsWith("\n") ? event.result.slice(1) : event.result;
               pushOutput(text.endsWith("\n") ? text : `${text}\n`, "stdout");
@@ -499,73 +503,35 @@ function createClaudeTextBridge(options: {
             }
           }
         } catch {
-          // Not valid JSON — push raw line
           pushOutput(`${trimmed}\n`, "stdout");
           hasOutput = true;
         }
       }
     });
 
-    child.stderr.on("data", (chunk: Buffer | string) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", (err) => {
-      pushOutput(`Claude launch error: ${err.message}\n`, "stderr");
-      activeChild = null;
-      processing = false;
-      currentStatus = "error";
-      runNext();
-    });
-
-    child.on("close", (code) => {
-      activeChild = null;
+    child.onExit(({ exitCode }: { exitCode: number }) => {
+      activePty = null;
       processing = false;
 
-      // Process remaining line buffer
+      // Flush remaining buffer
       if (lineBuf.trim()) {
+        const trimmed = lineBuf.trim();
         try {
-          const event = JSON.parse(lineBuf.trim()) as {
-            type?: string;
-            session_id?: string;
-            is_error?: boolean;
-            result?: string;
-            message?: {
-              content?: Array<{ type: string; text?: string }>;
-            };
-          };
-          if (typeof event.session_id === "string") {
-            sessionId = event.session_id;
-          }
-          if (event.type === "assistant" && Array.isArray(event.message?.content)) {
-            for (const block of event.message!.content) {
-              if (block.type === "text" && block.text) {
-                pushOutput(block.text.endsWith("\n") ? block.text : `${block.text}\n`, "stdout");
-                hasOutput = true;
-              }
-            }
-          }
-          if (event.type === "result" && event.is_error) {
-            currentStatus = "error";
-          }
+          const event = JSON.parse(trimmed) as { type?: string; session_id?: string; is_error?: boolean };
+          if (typeof event.session_id === "string") sessionId = event.session_id;
+          if (event.type === "result" && event.is_error) currentStatus = "error";
         } catch {
-          pushOutput(`${lineBuf.trim()}\n`, "stdout");
+          pushOutput(`${trimmed}\n`, "stdout");
         }
       }
 
-      if (!hasOutput && stderr.trim()) {
-        pushOutput(stderr.endsWith("\n") ? stderr : `${stderr}\n`, "stderr");
-      } else if (stderr.trim()) {
-        pushOutput(stderr.endsWith("\n") ? stderr : `${stderr}\n`, "stderr");
-      }
-
-      if (code && code !== 0) {
+      if (exitCode !== 0) {
         currentStatus = "error";
       }
 
       if (stopped) {
         currentStatus = "done";
-        resolveExit(code ?? 0);
+        resolveExit(exitCode);
         return;
       }
 
@@ -579,7 +545,7 @@ function createClaudeTextBridge(options: {
       let resolve: ((value: IteratorResult<AgentOutput>) => void) | null = null;
       let isDone = false;
 
-      const onOutput = (out: AgentOutput) => {
+      emitter.on("output", (out: AgentOutput) => {
         if (resolve) {
           const r = resolve;
           resolve = null;
@@ -587,19 +553,16 @@ function createClaudeTextBridge(options: {
         } else {
           localQueue.push(out);
         }
-      };
+      });
 
-      const onExit = () => {
+      emitter.on("exit", () => {
         isDone = true;
         if (resolve) {
           const r = resolve;
           resolve = null;
           r({ value: undefined as unknown as AgentOutput, done: true });
         }
-      };
-
-      emitter.on("output", onOutput);
-      emitter.on("exit", onExit);
+      });
 
       return {
         next(): Promise<IteratorResult<AgentOutput>> {
@@ -607,14 +570,9 @@ function createClaudeTextBridge(options: {
             return Promise.resolve({ value: localQueue.shift()!, done: false });
           }
           if (isDone) {
-            return Promise.resolve({
-              value: undefined as unknown as AgentOutput,
-              done: true,
-            });
+            return Promise.resolve({ value: undefined as unknown as AgentOutput, done: true });
           }
-          return new Promise((r) => {
-            resolve = r;
-          });
+          return new Promise((r) => { resolve = r; });
         },
       };
     },
@@ -637,24 +595,26 @@ function createClaudeTextBridge(options: {
       runNext();
     },
     output,
-    get status() {
-      return currentStatus;
-    },
-    set status(s: AgentStatus) {
-      currentStatus = s;
-    },
+    get status() { return currentStatus; },
+    set status(s: AgentStatus) { currentStatus = s; },
     buffer,
     async kill() {
       stopped = true;
       queue.length = 0;
 
-      if (activeChild && !activeChild.killed) {
-        activeChild.kill("SIGTERM");
-        setTimeout(() => {
-          if (activeChild && !activeChild.killed) {
-            activeChild.kill("SIGKILL");
-          }
-        }, 2000);
+      if (activePty) {
+        try {
+          const treeKill = (await import("tree-kill")).default;
+          const pid = activePty.pid;
+          await new Promise<void>((resolve, reject) => {
+            treeKill(pid, "SIGTERM", (err?: Error) => {
+              if (err) reject(err);
+              else resolve();
+            });
+          });
+        } catch {
+          activePty?.kill();
+        }
       } else {
         currentStatus = "done";
         resolveExit(0);
@@ -668,7 +628,7 @@ function createClaudeTextBridge(options: {
       return () => emitter.off("data", listener);
     },
     resize() {
-      // No-op for text bridge mode.
+      // No-op — each prompt spawns its own PTY.
     },
   };
 }
