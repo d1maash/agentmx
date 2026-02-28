@@ -2,9 +2,13 @@ import type {
   AgentAdapter,
   AgentProcess,
   AgentInfo,
+  AgentOutput,
+  AgentStatus,
   SpawnOptions,
 } from "./types.js";
 import { execSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { spawnPty } from "./pty-helpers.js";
 
 export class ClaudeCodeAdapter implements AgentAdapter {
@@ -28,25 +32,267 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   spawn(task: string, options?: SpawnOptions): AgentProcess {
-    // If explicit args provided, use them
-    // Otherwise: no task = interactive mode, with task = print mode
+    // If explicit args provided, use raw PTY mode directly.
     let args: string[];
     if (options?.args) {
       args = options.args;
-    } else if (task && task !== "interactive") {
-      args = ["-p", task];
-    } else {
-      // Interactive mode: launch claude without -p
-      args = [];
+      return spawnPty({
+        command: "claude",
+        args,
+        cwd: options.cwd ?? process.cwd(),
+        env: { ...process.env, ...options.env } as Record<string, string>,
+        agentName: "claude-code",
+        task: task || "interactive",
+      });
     }
 
-    return spawnPty({
-      command: "claude",
-      args,
+    if (task && task !== "interactive") {
+      // One-shot task mode.
+      return spawnPty({
+        command: "claude",
+        args: ["-p", task],
+        cwd: options?.cwd ?? process.cwd(),
+        env: { ...process.env, ...options?.env } as Record<string, string>,
+        agentName: "claude-code",
+        task,
+      });
+    }
+
+    // Interactive text bridge (no fullscreen Claude UI).
+    return createClaudeTextBridge({
       cwd: options?.cwd ?? process.cwd(),
       env: { ...process.env, ...options?.env } as Record<string, string>,
-      agentName: "claude-code",
-      task: task || "interactive",
     });
   }
+}
+
+function createClaudeTextBridge(options: {
+  cwd: string;
+  env: Record<string, string>;
+}): AgentProcess {
+  const { cwd, env } = options;
+  const emitter = new EventEmitter();
+  const buffer: AgentOutput[] = [];
+  const queue: string[] = [];
+
+  let currentStatus: AgentStatus = "idle";
+  let activeChild: ReturnType<typeof spawn> | null = null;
+  let pendingInput = "";
+  let sessionId: string | null = null;
+  let stopped = false;
+  let processing = false;
+  let doneResolved = false;
+  let resolveDone!: (value: { exitCode: number }) => void;
+
+  const done = new Promise<{ exitCode: number }>((resolve) => {
+    resolveDone = resolve;
+  });
+
+  const resolveExit = (exitCode: number) => {
+    if (doneResolved) return;
+    doneResolved = true;
+    emitter.emit("exit", exitCode);
+    resolveDone({ exitCode });
+  };
+
+  const pushOutput = (data: string, type: AgentOutput["type"] = "stdout") => {
+    if (!data) return;
+    const out: AgentOutput = { type, data, timestamp: Date.now() };
+    buffer.push(out);
+    emitter.emit("output", out);
+    emitter.emit("data", data);
+  };
+
+  const runNext = () => {
+    if (stopped || processing) return;
+
+    const prompt = queue.shift();
+    if (!prompt) {
+      currentStatus = "idle";
+      return;
+    }
+
+    processing = true;
+    currentStatus = "running";
+
+    const args = ["-p", "--output-format", "json", "--no-chrome"];
+    if (sessionId) {
+      args.push("--resume", sessionId);
+    }
+    args.push(prompt);
+
+    const child = spawn("claude", args, { cwd, env, stdio: "pipe" });
+    activeChild = child;
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (err) => {
+      pushOutput(`Claude launch error: ${err.message}\n`, "stderr");
+      activeChild = null;
+      processing = false;
+      currentStatus = "error";
+      runNext();
+    });
+
+    child.on("close", (code) => {
+      activeChild = null;
+      processing = false;
+
+      let printed = false;
+      const trimmed = stdout.trim();
+      if (trimmed.length > 0) {
+        try {
+          const parsed = JSON.parse(trimmed) as {
+            result?: string;
+            session_id?: string;
+            is_error?: boolean;
+          };
+          if (typeof parsed.session_id === "string") {
+            sessionId = parsed.session_id;
+          }
+          if (typeof parsed.result === "string" && parsed.result.length > 0) {
+            const text = parsed.result.startsWith("\n")
+              ? parsed.result.slice(1)
+              : parsed.result;
+            pushOutput(text.endsWith("\n") ? text : `${text}\n`, "stdout");
+            printed = true;
+          }
+          if (parsed.is_error) {
+            currentStatus = "error";
+          }
+        } catch {
+          // Not JSON; will print raw output below.
+        }
+      }
+
+      if (!printed) {
+        const raw = `${stdout}${stderr}`.trim();
+        if (raw.length > 0) {
+          pushOutput(raw.endsWith("\n") ? raw : `${raw}\n`, code === 0 ? "stdout" : "stderr");
+        }
+      } else if (stderr.trim().length > 0) {
+        pushOutput(stderr.endsWith("\n") ? stderr : `${stderr}\n`, "stderr");
+      }
+
+      if (code && code !== 0) {
+        currentStatus = "error";
+      }
+
+      if (stopped) {
+        currentStatus = "done";
+        resolveExit(code ?? 0);
+        return;
+      }
+
+      runNext();
+    });
+  };
+
+  const output: AsyncIterable<AgentOutput> = {
+    [Symbol.asyncIterator]() {
+      const localQueue: AgentOutput[] = [];
+      let resolve: ((value: IteratorResult<AgentOutput>) => void) | null = null;
+      let isDone = false;
+
+      const onOutput = (out: AgentOutput) => {
+        if (resolve) {
+          const r = resolve;
+          resolve = null;
+          r({ value: out, done: false });
+        } else {
+          localQueue.push(out);
+        }
+      };
+
+      const onExit = () => {
+        isDone = true;
+        if (resolve) {
+          const r = resolve;
+          resolve = null;
+          r({ value: undefined as unknown as AgentOutput, done: true });
+        }
+      };
+
+      emitter.on("output", onOutput);
+      emitter.on("exit", onExit);
+
+      return {
+        next(): Promise<IteratorResult<AgentOutput>> {
+          if (localQueue.length > 0) {
+            return Promise.resolve({ value: localQueue.shift()!, done: false });
+          }
+          if (isDone) {
+            return Promise.resolve({
+              value: undefined as unknown as AgentOutput,
+              done: true,
+            });
+          }
+          return new Promise((r) => {
+            resolve = r;
+          });
+        },
+      };
+    },
+  };
+
+  return {
+    send(input: string) {
+      if (stopped) return;
+
+      pendingInput += input;
+      const lines = pendingInput.split(/\r?\n/);
+      pendingInput = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const prompt = line.trim();
+        if (!prompt) continue;
+        queue.push(prompt);
+      }
+
+      runNext();
+    },
+    output,
+    get status() {
+      return currentStatus;
+    },
+    set status(s: AgentStatus) {
+      currentStatus = s;
+    },
+    buffer,
+    async kill() {
+      stopped = true;
+      queue.length = 0;
+
+      if (activeChild && !activeChild.killed) {
+        activeChild.kill("SIGTERM");
+        setTimeout(() => {
+          if (activeChild && !activeChild.killed) {
+            activeChild.kill("SIGKILL");
+          }
+        }, 2000);
+      } else {
+        currentStatus = "done";
+        resolveExit(0);
+      }
+    },
+    done,
+    task: "interactive",
+    agentName: "claude-code",
+    onData(listener: (data: string) => void): () => void {
+      emitter.on("data", listener);
+      return () => emitter.off("data", listener);
+    },
+    resize() {
+      // No-op for text bridge mode.
+    },
+  };
 }

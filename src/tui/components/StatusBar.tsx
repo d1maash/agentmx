@@ -17,7 +17,7 @@ function formatUptime(ms: number): string {
   return `${secs}s`;
 }
 
-export function StatusBar({ session }: StatusBarProps) {
+export function StatusBar({ session, focused }: StatusBarProps) {
   return (
     <Box paddingX={1} justifyContent="space-between">
       <Box gap={2}>
@@ -50,8 +50,9 @@ export function StatusBar({ session }: StatusBarProps) {
         )}
       </Box>
       <Box gap={1}>
+        <Text dimColor>{focused ? "INPUT" : "VIEW"}</Text>
         <Text dimColor>
-          1-9 switch | Enter {session?.status === "done" || session?.status === "error" ? "restart" : "focus"} | Ctrl+N new | Ctrl+W kill | Ctrl+Q quit
+          1-9 switch | Enter input | Esc close input | Ctrl+N new | Ctrl+W kill | Ctrl+Q quit
         </Text>
       </Box>
     </Box>
