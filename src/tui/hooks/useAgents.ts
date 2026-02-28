@@ -2,10 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { AgentAdapter, AgentOutput, AgentStatus } from "../../adapters/types.js";
 import type { ProcessManager } from "../../core/process-manager.js";
 import type { Config } from "../../config/schema.js";
-import { ClaudeCodeAdapter } from "../../adapters/claude-code.js";
-import { CodexAdapter } from "../../adapters/codex.js";
-import { AiderAdapter } from "../../adapters/aider.js";
-import { CustomAdapter } from "../../adapters/custom.js";
+import { createAdapters } from "../../adapters/factory.js";
 
 export interface AgentSession {
   id: string;
@@ -15,37 +12,6 @@ export interface AgentSession {
   status: AgentStatus;
   buffer: AgentOutput[];
   startedAt: number;
-}
-
-function createAdapters(config: Config): Map<string, AgentAdapter> {
-  const adapters = new Map<string, AgentAdapter>();
-
-  for (const [name, agentConfig] of Object.entries(config.agents)) {
-    if (!agentConfig.enabled) continue;
-
-    let adapter: AgentAdapter;
-    switch (name) {
-      case "claude-code":
-        adapter = new ClaudeCodeAdapter();
-        break;
-      case "codex":
-        adapter = new CodexAdapter();
-        break;
-      case "aider":
-        adapter = new AiderAdapter();
-        break;
-      default:
-        adapter = new CustomAdapter({
-          name,
-          command: agentConfig.command,
-          defaultArgs: agentConfig.args,
-          env: agentConfig.env,
-        });
-    }
-    adapters.set(name, adapter);
-  }
-
-  return adapters;
 }
 
 export function useAgents(processManager: ProcessManager, config: Config) {
