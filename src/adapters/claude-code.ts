@@ -263,7 +263,188 @@ function createClaudeStreamJson(options: {
     emitter.emit("data", out.data);
   };
 
-  const args = ["-p", "--output-format", "stream-json", "--verbose", task];
+  // --- Streaming state for --include-partial-messages ---
+  const activeBlocks = new Map<number, {
+    type: "thinking" | "text" | "tool_use";
+    bufferIndex: number;
+    accText: string;
+    accJson: string;
+    toolName?: string;
+    toolId?: string;
+  }>();
+  let hasStreamEvents = false;
+
+  function handleParsedEvent(event: Record<string, unknown>) {
+    const type = event.type as string | undefined;
+
+    if (type === "stream_event") {
+      hasStreamEvents = true;
+      const se = event.event as Record<string, unknown>;
+      if (se) handleStreamSubEvent(se);
+      return;
+    }
+
+    // Skip duplicate assistant messages — already shown via stream events
+    if (type === "assistant" && hasStreamEvents) return;
+    // Skip rate limit events
+    if (type === "rate_limit_event") return;
+
+    // Process other events normally (system/init, user/tool_result, result/cost)
+    const outputs = processStreamEvent(event);
+    for (const out of outputs) pushOutput(out);
+  }
+
+  function handleStreamSubEvent(se: Record<string, unknown>) {
+    const seType = se.type as string;
+
+    switch (seType) {
+      case "message_start":
+        activeBlocks.clear();
+        break;
+
+      case "content_block_start": {
+        const index = se.index as number;
+        const block = se.content_block as Record<string, unknown>;
+        if (!block) break;
+        const blockType = block.type as string;
+
+        if (blockType === "thinking") {
+          const out: AgentOutput = {
+            type: "stdout",
+            data: "thinking...\n",
+            timestamp: Date.now(),
+            activity: { kind: "thinking", text: "", streaming: true },
+          };
+          pushOutput(out);
+          activeBlocks.set(index, {
+            type: "thinking",
+            bufferIndex: buffer.length - 1,
+            accText: "",
+            accJson: "",
+          });
+        } else if (blockType === "text") {
+          const out: AgentOutput = {
+            type: "stdout",
+            data: "",
+            timestamp: Date.now(),
+            activity: { kind: "text", text: "", streaming: true },
+          };
+          pushOutput(out);
+          activeBlocks.set(index, {
+            type: "text",
+            bufferIndex: buffer.length - 1,
+            accText: "",
+            accJson: "",
+          });
+        } else if (blockType === "tool_use") {
+          const toolName = String(block.name ?? "unknown");
+          const toolId = String(block.id ?? "");
+          const out: AgentOutput = {
+            type: "stdout",
+            data: `[${toolName}] ...\n`,
+            timestamp: Date.now(),
+            activity: { kind: "tool_call", toolName, toolId, input: {}, streaming: true },
+          };
+          pushOutput(out);
+          activeBlocks.set(index, {
+            type: "tool_use",
+            bufferIndex: buffer.length - 1,
+            accText: "",
+            accJson: "",
+            toolName,
+            toolId,
+          });
+        }
+        break;
+      }
+
+      case "content_block_delta": {
+        const index = se.index as number;
+        const delta = se.delta as Record<string, unknown>;
+        if (!delta) break;
+        const deltaType = delta.type as string;
+        const block = activeBlocks.get(index);
+        if (!block) break;
+
+        if (deltaType === "thinking_delta" && block.type === "thinking") {
+          const chunk = (delta.thinking as string) ?? "";
+          if (chunk) {
+            block.accText += chunk;
+            const entry = buffer[block.bufferIndex];
+            if (entry) {
+              entry.data = block.accText;
+              const act = entry.activity;
+              if (act && act.kind === "thinking") {
+                act.text = block.accText;
+              }
+            }
+          }
+        } else if (deltaType === "text_delta" && block.type === "text") {
+          block.accText += delta.text as string;
+          const entry = buffer[block.bufferIndex];
+          if (entry) {
+            entry.data = block.accText;
+            const act = entry.activity;
+            if (act && act.kind === "text") {
+              act.text = block.accText;
+            }
+          }
+        } else if (deltaType === "input_json_delta" && block.type === "tool_use") {
+          block.accJson += delta.partial_json as string;
+          const entry = buffer[block.bufferIndex];
+          if (entry) {
+            try {
+              const input = JSON.parse(block.accJson) as Record<string, unknown>;
+              entry.data = `${formatToolCall(block.toolName!, input)}\n`;
+              const act = entry.activity;
+              if (act && act.kind === "tool_call") act.input = input;
+            } catch {
+              const hint = block.accJson.replace(/[{}"]/g, "").trim();
+              if (hint) entry.data = `[${block.toolName}] ${truncate(hint, 60)}\n`;
+            }
+          }
+        }
+        break;
+      }
+
+      case "content_block_stop": {
+        const index = se.index as number;
+        const block = activeBlocks.get(index);
+        if (!block) break;
+
+        const entry = buffer[block.bufferIndex];
+        if (entry) {
+          if (block.type === "tool_use" && block.accJson) {
+            try {
+              const input = JSON.parse(block.accJson) as Record<string, unknown>;
+              entry.data = `${formatToolCall(block.toolName!, input)}\n`;
+              const act = entry.activity;
+              if (act && act.kind === "tool_call") {
+                act.input = input;
+                act.streaming = false;
+              }
+            } catch { /* ignore */ }
+          }
+          if (block.type === "text") {
+            const act = entry.activity;
+            if (act && act.kind === "text") act.streaming = false;
+          }
+          if (block.type === "thinking") {
+            const act = entry.activity;
+            if (act && act.kind === "thinking") act.streaming = false;
+          }
+        }
+        activeBlocks.delete(index);
+        break;
+      }
+
+      case "message_stop":
+        activeBlocks.clear();
+        break;
+    }
+  }
+
+  const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", task];
   // Claude requires a TTY — use node-pty. Wide cols to prevent line wrapping in JSON.
   const ptyProcess = pty.spawn("claude", args, {
     name: "xterm-256color",
@@ -276,7 +457,6 @@ function createClaudeStreamJson(options: {
   let lineBuf = "";
 
   ptyProcess.onData((rawData: string) => {
-    // Strip ANSI codes and \r, then parse NDJSON lines
     lineBuf += stripAnsi(rawData);
     const lines = lineBuf.split("\n");
     lineBuf = lines.pop() ?? "";
@@ -286,12 +466,8 @@ function createClaudeStreamJson(options: {
       if (!trimmed) continue;
       try {
         const event = JSON.parse(trimmed) as Record<string, unknown>;
-        const outputs = processStreamEvent(event);
-        for (const out of outputs) {
-          pushOutput(out);
-        }
+        handleParsedEvent(event);
       } catch {
-        // Non-JSON line (error messages, etc.) — show as-is
         pushOutput({ type: "stdout", data: `${trimmed}\n`, timestamp: Date.now() });
       }
     }
@@ -303,10 +479,7 @@ function createClaudeStreamJson(options: {
       const trimmed = lineBuf.trim();
       try {
         const event = JSON.parse(trimmed) as Record<string, unknown>;
-        const outputs = processStreamEvent(event);
-        for (const out of outputs) {
-          pushOutput(out);
-        }
+        handleParsedEvent(event);
       } catch {
         pushOutput({ type: "stdout", data: `${trimmed}\n`, timestamp: Date.now() });
       }

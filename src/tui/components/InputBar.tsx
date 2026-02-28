@@ -67,18 +67,20 @@ export function InputBar({ agentName, focused, onSubmit }: InputBarProps) {
 
   if (!focused) {
     return (
-      <Box paddingX={1} borderStyle="single" borderColor="gray">
-        <Text dimColor>Press Enter to type input for {agentName}</Text>
+      <Box paddingX={1} borderStyle="single" borderColor="gray" width="100%">
+        <Text dimColor wrap="truncate">
+          Press Enter to type input for {agentName}
+        </Text>
       </Box>
     );
   }
 
   return (
-    <Box paddingX={1} borderStyle="single" borderColor="cyan">
+    <Box paddingX={1} borderStyle="single" borderColor="cyan" width="100%" overflow="hidden">
       <Text color="cyan" bold>
         {agentName} {">"}{" "}
       </Text>
-      <Text>{visibleInput}</Text>
+      <Text wrap="truncate">{visibleInput}</Text>
       <Text color="cyan">█</Text>
     </Box>
   );

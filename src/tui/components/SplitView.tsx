@@ -13,6 +13,8 @@ function AgentPane({ session }: { session: AgentSession }) {
     <Box
       flexDirection="column"
       flexGrow={1}
+      width="100%"
+      overflow="hidden"
       borderStyle="single"
       borderColor="gray"
     >
@@ -22,7 +24,7 @@ function AgentPane({ session }: { session: AgentSession }) {
         </Text>
         <Text dimColor> ({session.status})</Text>
       </Box>
-      <Box flexDirection="column" flexGrow={1}>
+      <Box flexDirection="column" flexGrow={1} width="100%" overflow="hidden">
         <AgentView session={session} />
       </Box>
     </Box>
@@ -34,6 +36,8 @@ export function SplitView({ sessions, direction }: SplitViewProps) {
     <Box
       flexDirection={direction === "vertical" ? "row" : "column"}
       flexGrow={1}
+      width="100%"
+      overflow="hidden"
     >
       {sessions.map((session) => (
         <AgentPane key={session.id} session={session} />
