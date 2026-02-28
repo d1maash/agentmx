@@ -11,6 +11,15 @@ import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { spawnPty } from "./pty-helpers.js";
 
+/**
+ * Build a clean env for spawning Claude sub-processes.
+ * Removes variables that prevent nested Claude Code sessions.
+ */
+function cleanClaudeEnv(extra?: Record<string, string>): Record<string, string> {
+  const { CLAUDECODE, CLAUDE_CODE, ...rest } = process.env as Record<string, string>;
+  return { ...rest, ...extra };
+}
+
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly info: AgentInfo = {
     name: "claude-code",
@@ -32,6 +41,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   spawn(task: string, options?: SpawnOptions): AgentProcess {
+    const env = cleanClaudeEnv(options?.env);
+
     // If explicit args provided, use raw PTY mode directly.
     let args: string[];
     if (options?.args) {
@@ -40,7 +51,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         command: "claude",
         args,
         cwd: options.cwd ?? process.cwd(),
-        env: { ...process.env, ...options.env } as Record<string, string>,
+        env,
         agentName: "claude-code",
         task: task || "interactive",
       });
@@ -52,7 +63,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         command: "claude",
         args: ["-p", task],
         cwd: options?.cwd ?? process.cwd(),
-        env: { ...process.env, ...options?.env } as Record<string, string>,
+        env,
         agentName: "claude-code",
         task,
       });
@@ -61,7 +72,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // Interactive text bridge (no fullscreen Claude UI).
     return createClaudeTextBridge({
       cwd: options?.cwd ?? process.cwd(),
-      env: { ...process.env, ...options?.env } as Record<string, string>,
+      env,
     });
   }
 }

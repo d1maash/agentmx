@@ -11,6 +11,61 @@ import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { spawnPty } from "./pty-helpers.js";
 
+type CodexJsonItem = {
+  id?: string;
+  type?: string;
+  text?: string;
+  command?: string;
+  aggregated_output?: string;
+  exit_code?: number | null;
+  status?: string;
+};
+
+type CodexJsonEvent = {
+  type?: string;
+  thread_id?: string;
+  usage?: {
+    input_tokens?: number;
+    cached_input_tokens?: number;
+    output_tokens?: number;
+  };
+  item?: CodexJsonItem;
+};
+
+const COMMAND_OUTPUT_PREVIEW_MAX = 1200;
+
+function ensureTrailingNewline(text: string): string {
+  return text.endsWith("\n") ? text : `${text}\n`;
+}
+
+function isApprovalLike(value: string): boolean {
+  return /(approval|approve|confirm|permission|consent)/i.test(value);
+}
+
+function isInputLike(value: string): boolean {
+  return /(input|question|prompt|await|wait)/i.test(value);
+}
+
+function isPlanLike(value: string): boolean {
+  return /plan/i.test(value);
+}
+
+function previewCommandOutput(output: string): string {
+  const normalized = output.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return "";
+  if (normalized.length <= COMMAND_OUTPUT_PREVIEW_MAX) return normalized;
+  const hidden = normalized.length - COMMAND_OUTPUT_PREVIEW_MAX;
+  return `${normalized.slice(0, COMMAND_OUTPUT_PREVIEW_MAX)}\n...[${hidden} more chars]`;
+}
+
+function formatUsageLine(usage: CodexJsonEvent["usage"]): string {
+  if (!usage) return "";
+  const inTokens = usage.input_tokens ?? 0;
+  const cached = usage.cached_input_tokens ?? 0;
+  const outTokens = usage.output_tokens ?? 0;
+  return `[codex] Turn complete (in=${inTokens}, cached=${cached}, out=${outTokens})`;
+}
+
 export class CodexAdapter implements AgentAdapter {
   readonly info: AgentInfo = {
     name: "codex",
@@ -120,11 +175,145 @@ function createCodexTextBridge(options: {
     const child = spawn("codex", args, { cwd, env, stdio: "pipe" });
     activeChild = child;
 
-    let stdout = "";
+    let rawStdout = "";
     let stderr = "";
+    let remainder = "";
+    let sawJsonEvent = false;
+    let sawStructuredOutput = false;
+    const nonJsonStdoutLines: string[] = [];
+    const notices = {
+      approval: false,
+      input: false,
+      plan: false,
+    };
+
+    const emit = (
+      text: string,
+      type: AgentOutput["type"] = "system"
+    ): boolean => {
+      if (!text) return false;
+      pushOutput(ensureTrailingNewline(text), type);
+      return true;
+    };
+
+    const maybeEmitNotices = (source: string): boolean => {
+      let emitted = false;
+      if (!notices.approval && isApprovalLike(source)) {
+        emitted =
+          emit(
+            "[codex] Approval required. Press Enter to focus input, then send your approval or constraints."
+          ) || emitted;
+        notices.approval = true;
+      }
+      if (!notices.input && isInputLike(source)) {
+        emitted =
+          emit(
+            "[codex] Waiting for your input. Press Enter to type a reply and submit it."
+          ) || emitted;
+        notices.input = true;
+      }
+      if (!notices.plan && isPlanLike(source)) {
+        emitted =
+          emit(
+            "[codex] Plan-related step detected. Review output before approving execution."
+          ) || emitted;
+        notices.plan = true;
+      }
+      return emitted;
+    };
+
+    const handleEvent = (event: CodexJsonEvent): boolean => {
+      const eventType = typeof event.type === "string" ? event.type : "";
+      let emitted = false;
+
+      if (eventType === "thread.started" && typeof event.thread_id === "string") {
+        threadId = event.thread_id;
+        emitted = emit(`[codex] Session started: ${threadId}`) || emitted;
+      } else if (eventType === "turn.started") {
+        emitted = emit("[codex] Working...") || emitted;
+      } else if (eventType === "turn.completed") {
+        const usageLine = formatUsageLine(event.usage);
+        emitted = emit(usageLine || "[codex] Turn complete.") || emitted;
+      }
+
+      const item = event.item;
+      if (item && typeof item.type === "string") {
+        const itemType = item.type;
+        const isStarted = eventType === "item.started";
+        const isCompleted = eventType === "item.completed";
+
+        if (itemType === "agent_message" && isCompleted && typeof item.text === "string") {
+          emitted = emit(item.text, "stdout") || emitted;
+        } else if (itemType === "reasoning" && isCompleted && typeof item.text === "string") {
+          emitted = emit(`[codex][reasoning] ${item.text}`) || emitted;
+        } else if (itemType === "command_execution") {
+          const command =
+            typeof item.command === "string" && item.command.length > 0
+              ? item.command
+              : "<unknown command>";
+          if (isStarted) {
+            emitted = emit(`[codex][command:start] ${command}`) || emitted;
+          } else if (isCompleted) {
+            const exitCode =
+              typeof item.exit_code === "number" ? item.exit_code : "unknown";
+            emitted =
+              emit(`[codex][command:end] exit=${exitCode} ${command}`) || emitted;
+
+            if (typeof item.aggregated_output === "string") {
+              const preview = previewCommandOutput(item.aggregated_output);
+              if (preview) {
+                emitted =
+                  emit(`[codex][command:output]\n${preview}`, "stdout") || emitted;
+              }
+            }
+          }
+        } else if (
+          isCompleted &&
+          typeof item.text === "string" &&
+          item.text.trim().length > 0
+        ) {
+          emitted = emit(`[codex][${itemType}] ${item.text}`) || emitted;
+        }
+
+        const statusSource = `${eventType} ${itemType} ${item.status ?? ""}`;
+        emitted = maybeEmitNotices(statusSource) || emitted;
+      } else {
+        emitted = maybeEmitNotices(eventType) || emitted;
+      }
+
+      if (eventType.includes("failed") || eventType.includes("error")) {
+        currentStatus = "error";
+      }
+
+      return emitted;
+    };
+
+    const processJsonlChunk = (chunk: string, flush = false) => {
+      rawStdout += chunk;
+      remainder += chunk;
+
+      const parts = remainder.split(/\r?\n/);
+      if (!flush) {
+        remainder = parts.pop() ?? "";
+      } else {
+        remainder = "";
+      }
+
+      for (const rawLine of parts) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        try {
+          const event = JSON.parse(line) as CodexJsonEvent;
+          sawJsonEvent = true;
+          sawStructuredOutput = handleEvent(event) || sawStructuredOutput;
+        } catch {
+          nonJsonStdoutLines.push(rawLine);
+        }
+      }
+    };
 
     child.stdout.on("data", (chunk: Buffer | string) => {
-      stdout += chunk.toString();
+      processJsonlChunk(chunk.toString(), false);
     });
 
     child.stderr.on("data", (chunk: Buffer | string) => {
@@ -142,44 +331,23 @@ function createCodexTextBridge(options: {
     child.on("close", (code) => {
       activeChild = null;
       processing = false;
+      processJsonlChunk("", true);
 
-      const messages: string[] = [];
-      const lines = stdout.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      const nonJsonStdout = nonJsonStdoutLines.join("\n").trim();
 
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line) as {
-            type?: string;
-            thread_id?: string;
-            item?: { type?: string; text?: string };
-          };
-
-          if (event.type === "thread.started" && typeof event.thread_id === "string") {
-            threadId = event.thread_id;
-          }
-
-          if (event.type === "item.completed" && event.item?.type === "agent_message") {
-            if (typeof event.item.text === "string" && event.item.text.length > 0) {
-              messages.push(event.item.text);
-            }
-          }
-        } catch {
-          // Ignore malformed jsonl line; raw output fallback below handles it.
+      if (sawStructuredOutput) {
+        if (nonJsonStdout.length > 0) {
+          pushOutput(ensureTrailingNewline(nonJsonStdout), "stdout");
         }
-      }
-
-      if (messages.length > 0) {
-        const text = `${messages.join("\n")}\n`;
-        pushOutput(text, "stdout");
+        if (stderr.trim().length > 0) {
+          pushOutput(ensureTrailingNewline(stderr), "stderr");
+        }
       } else {
-        const raw = `${stdout}${stderr}`.trim();
+        const stdoutText = sawJsonEvent ? nonJsonStdout : rawStdout;
+        const raw = `${stdoutText}${stderr}`.trim();
         if (raw.length > 0) {
-          pushOutput(raw.endsWith("\n") ? raw : `${raw}\n`, code === 0 ? "stdout" : "stderr");
+          pushOutput(ensureTrailingNewline(raw), code === 0 ? "stdout" : "stderr");
         }
-      }
-
-      if (stderr.trim().length > 0 && messages.length > 0) {
-        pushOutput(stderr.endsWith("\n") ? stderr : `${stderr}\n`, "stderr");
       }
 
       if (code && code !== 0) {
