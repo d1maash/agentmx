@@ -438,13 +438,15 @@ function createClaudeTextBridge(options: {
     processing = true;
     currentStatus = "running";
 
-    const args = ["-p", "--output-format", "stream-json"];
+    // -p doesn't support stream-json, so pipe the prompt via stdin.
+    const args = ["--output-format", "stream-json"];
     if (sessionId) {
       args.push("--resume", sessionId);
     }
-    args.push(prompt);
 
-    const child = spawn("claude", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    child.stdin.write(prompt + "\n");
+    child.stdin.end();
     activeChild = child;
 
     let lineBuf = "";
