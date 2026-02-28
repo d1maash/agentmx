@@ -66,6 +66,11 @@ function formatUsageLine(usage: CodexJsonEvent["usage"]): string {
   return `[codex] Turn complete (in=${inTokens}, cached=${cached}, out=${outTokens})`;
 }
 
+interface CodexAdapterConfig {
+  defaultArgs?: string[];
+  defaultEnv?: Record<string, string>;
+}
+
 export class CodexAdapter implements AgentAdapter {
   readonly info: AgentInfo = {
     name: "codex",
@@ -74,6 +79,13 @@ export class CodexAdapter implements AgentAdapter {
     command: "codex",
     isInstalled: false,
   };
+  private readonly defaultArgs: string[];
+  private readonly defaultEnv: Record<string, string>;
+
+  constructor(config?: CodexAdapterConfig) {
+    this.defaultArgs = [...(config?.defaultArgs ?? [])];
+    this.defaultEnv = { ...(config?.defaultEnv ?? {}) };
+  }
 
   async checkInstalled(): Promise<boolean> {
     try {
@@ -87,13 +99,19 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   spawn(task: string, options?: SpawnOptions): AgentProcess {
+    const mergedEnv = {
+      ...process.env,
+      ...this.defaultEnv,
+      ...options?.env,
+    } as Record<string, string>;
+
     // If explicit args are provided, keep raw PTY behavior.
     if (options?.args) {
       return spawnPty({
         command: "codex",
         args: options.args,
         cwd: options.cwd ?? process.cwd(),
-        env: { ...process.env, ...options.env } as Record<string, string>,
+        env: mergedEnv,
         agentName: "codex",
         task: task || "interactive",
       });
@@ -103,9 +121,9 @@ export class CodexAdapter implements AgentAdapter {
       // One-shot text mode.
       return spawnPty({
         command: "codex",
-        args: ["exec", task],
+        args: [...this.defaultArgs, "exec", task],
         cwd: options?.cwd ?? process.cwd(),
-        env: { ...process.env, ...options?.env } as Record<string, string>,
+        env: mergedEnv,
         agentName: "codex",
         task,
       });
@@ -114,7 +132,8 @@ export class CodexAdapter implements AgentAdapter {
     // Interactive text bridge (no Codex fullscreen TUI).
     return createCodexTextBridge({
       cwd: options?.cwd ?? process.cwd(),
-      env: { ...process.env, ...options?.env } as Record<string, string>,
+      env: mergedEnv,
+      baseArgs: this.defaultArgs,
     });
   }
 }
@@ -122,8 +141,9 @@ export class CodexAdapter implements AgentAdapter {
 function createCodexTextBridge(options: {
   cwd: string;
   env: Record<string, string>;
+  baseArgs: string[];
 }): AgentProcess {
-  const { cwd, env } = options;
+  const { cwd, env, baseArgs } = options;
   const emitter = new EventEmitter();
   const buffer: AgentOutput[] = [];
   const queue: string[] = [];
@@ -169,8 +189,8 @@ function createCodexTextBridge(options: {
     currentStatus = "running";
 
     const args = threadId
-      ? ["exec", "resume", "--json", threadId, prompt]
-      : ["exec", "--json", prompt];
+      ? [...baseArgs, "exec", "resume", "--json", threadId, prompt]
+      : [...baseArgs, "exec", "--json", prompt];
 
     const child = spawn("codex", args, { cwd, env, stdio: "pipe" });
     activeChild = child;
@@ -275,7 +295,9 @@ function createCodexTextBridge(options: {
           emitted = emit(`[codex][${itemType}] ${item.text}`) || emitted;
         }
 
-        const statusSource = `${eventType} ${itemType} ${item.status ?? ""}`;
+        const statusSource = `${eventType} ${itemType} ${item.status ?? ""} ${
+          typeof item.text === "string" ? item.text : ""
+        }`;
         emitted = maybeEmitNotices(statusSource) || emitted;
       } else {
         emitted = maybeEmitNotices(eventType) || emitted;

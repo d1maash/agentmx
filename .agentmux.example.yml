@@ -10,7 +10,7 @@ agents:
 
   codex:
     command: codex
-    args: ["--model", "o4-mini"]
+    args: ["--model", "o4-mini", "-a", "on-request"]
     enabled: true
 
   aider:
