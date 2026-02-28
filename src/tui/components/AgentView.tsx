@@ -102,8 +102,8 @@ function truncateStr(s: string, max: number): string {
 function ActivityView({ session }: { session: AgentSession }) {
   const maxItems = process.stdout.rows ? process.stdout.rows - 8 : 20;
   const items = useMemo(() => {
-    const withActivity = session.buffer.filter((b) => b.activity !== undefined);
-    return withActivity.slice(-Math.max(1, maxItems));
+    // Show ALL buffer items — ActivityItem handles both activity and raw text
+    return session.buffer.slice(-Math.max(1, maxItems));
   }, [session.buffer.length, maxItems]);
 
   return (

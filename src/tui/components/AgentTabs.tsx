@@ -7,6 +7,13 @@ interface AgentTabsProps {
   activeIndex: number;
 }
 
+function truncateLabel(label: string, max: number): string {
+  if (max <= 0) return "";
+  if (label.length <= max) return label;
+  if (max <= 3) return label.slice(0, max);
+  return `${label.slice(0, max - 3)}...`;
+}
+
 function statusColor(status: string): string {
   switch (status) {
     case "running":
@@ -44,25 +51,32 @@ export function AgentTabs({ sessions, activeIndex }: AgentTabsProps) {
     );
   }
 
+  const columns = process.stdout.columns ?? 120;
+  const perTabBudget = Math.max(
+    8,
+    Math.floor((columns - 4 - sessions.length) / Math.max(1, sessions.length))
+  );
+
   return (
-    <Box paddingX={1} gap={1}>
+    <Box paddingX={1} gap={1} flexWrap="nowrap">
       {sessions.map((session, index) => {
         const isActive = index === activeIndex;
         const color = statusColor(session.status);
         const symbol = statusSymbol(session.status);
         const num = index + 1;
+        const label = truncateLabel(`${num}:${session.displayName}`, perTabBudget);
 
         return (
           <Box key={session.id}>
             {isActive ? (
               <Text bold inverse color="white" backgroundColor="blue">
                 {" "}
-                <Text color={color}>{symbol}</Text> {num}:{session.displayName}{" "}
+                <Text color={color}>{symbol}</Text> {label}{" "}
               </Text>
             ) : (
               <Text dimColor={session.status === "done"}>
                 {" "}
-                <Text color={color}>{symbol}</Text> {num}:{session.displayName}{" "}
+                <Text color={color}>{symbol}</Text> {label}{" "}
               </Text>
             )}
           </Box>

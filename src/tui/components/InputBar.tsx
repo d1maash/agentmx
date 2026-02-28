@@ -23,6 +23,14 @@ interface InputBarProps {
 
 export function InputBar({ agentName, focused, onSubmit }: InputBarProps) {
   const [input, setInput] = useState("");
+  const columns = process.stdout.columns ?? 120;
+  const prompt = `${agentName} > `;
+  const maxInputChars = Math.max(0, columns - prompt.length - 8);
+  const visibleInput = (() => {
+    if (input.length <= maxInputChars) return input;
+    if (maxInputChars <= 3) return input.slice(-maxInputChars);
+    return `...${input.slice(-(maxInputChars - 3))}`;
+  })();
 
   useInput(
     (char, key) => {
@@ -70,7 +78,7 @@ export function InputBar({ agentName, focused, onSubmit }: InputBarProps) {
       <Text color="cyan" bold>
         {agentName} {">"}{" "}
       </Text>
-      <Text>{input}</Text>
+      <Text>{visibleInput}</Text>
       <Text color="cyan">█</Text>
     </Box>
   );
