@@ -50,20 +50,20 @@ export async function runCommand(
   let running = true;
 
   while (running) {
-    let action: RunAction | null = null;
+    const actionRef: { current: RunAction | null } = { current: null };
 
     const onFocus = (sessionId: string) => {
-      action = { type: "focus", sessionId };
+      actionRef.current = { type: "focus", sessionId };
       inkInstance.unmount();
     };
 
     const onStartFresh = (agentName: string) => {
-      action = { type: "start_fresh", agentName };
+      actionRef.current = { type: "start_fresh", agentName };
       inkInstance.unmount();
     };
 
     const onQuit = async () => {
-      action = { type: "quit" };
+      actionRef.current = { type: "quit" };
       await pm.stopAll();
       inkInstance.unmount();
     };
@@ -89,6 +89,8 @@ export async function runCommand(
 
     // Leave alternate screen buffer
     process.stdout.write("\x1b[?1049l");
+
+    const action = actionRef.current;
 
     if (!action || action.type === "quit") {
       running = false;

@@ -2,11 +2,11 @@ import type { ProcessManager } from "../core/process-manager.js";
 import type { AgentAdapter, AgentProcess } from "../adapters/types.js";
 
 /**
- * Terminal reset sequence — clears all modes Ink or other TUI frameworks
- * may have left active (mouse tracking, scroll regions, charsets, etc.)
+ * Keep passthrough terminal prep minimal and predictable.
+ * We intentionally avoid forcing alternate-screen toggles here,
+ * because full-screen CLIs manage those themselves.
  */
-const TERMINAL_RESET =
-  "\x1b[?1049l" + // Ensure main screen buffer (not alternate)
+const TERMINAL_PREP =
   "\x1b[?25h" + // Show cursor
   "\x1b[?1000l" + // Disable mouse click tracking
   "\x1b[?1002l" + // Disable mouse button-event tracking
@@ -20,8 +20,8 @@ const TERMINAL_RESET =
 /**
  * Raw passthrough for an EXISTING running session.
  *
- * Replays any buffered output (that was produced while the TUI was showing),
- * then connects stdin/stdout directly to the agent's PTY.
+ * Connects stdin/stdout directly to the agent's PTY and requests
+ * an explicit repaint from full-screen TUIs (Ctrl+L).
  *
  * Exit: Ctrl+] (GS, 0x1D) — returns to AgentMux TUI.
  */
@@ -36,8 +36,7 @@ export async function rawPassthrough(
     return "exited";
   }
 
-  // Clean terminal for the agent
-  process.stdout.write(TERMINAL_RESET);
+  process.stdout.write(TERMINAL_PREP);
 
   if (process.stdin.setRawMode) {
     process.stdin.setRawMode(true);
@@ -45,7 +44,10 @@ export async function rawPassthrough(
   process.stdin.resume();
   process.stdin.setEncoding("utf8");
 
-  return runPassthroughLoop(agentProcess, true);
+  // Don't replay historical buffer for existing sessions:
+  // full-screen TUIs (Claude Code, etc.) can render stale control
+  // sequences from old frames, which causes visual artifacts.
+  return runPassthroughLoop(agentProcess, { requestRepaint: true });
 }
 
 /**
@@ -61,8 +63,7 @@ export async function rawPassthroughFresh(
   adapter: AgentAdapter,
   task: string
 ): Promise<{ result: "detach" | "exited"; sessionId: string }> {
-  // Clean terminal BEFORE spawning the agent
-  process.stdout.write(TERMINAL_RESET);
+  process.stdout.write(TERMINAL_PREP);
 
   if (process.stdin.setRawMode) {
     process.stdin.setRawMode(true);
@@ -74,8 +75,8 @@ export async function rawPassthroughFresh(
   const sessionId = await pm.start(adapter, task);
   const agentProcess = pm.get(sessionId)!;
 
-  // Enter passthrough with buffer replay (catches any output from spawn)
-  const result = await runPassthroughLoop(agentProcess, true);
+  // No buffer replay: it can duplicate control frames for full-screen TUIs.
+  const result = await runPassthroughLoop(agentProcess, { requestRepaint: false });
   return { result, sessionId };
 }
 
@@ -87,7 +88,7 @@ export async function rawPassthroughFresh(
  */
 function runPassthroughLoop(
   agentProcess: AgentProcess,
-  replayBuffer: boolean
+  opts: { requestRepaint: boolean }
 ): Promise<"detach" | "exited"> {
   return new Promise<"detach" | "exited">((resolve) => {
     let resolved = false;
@@ -108,8 +109,8 @@ function runPassthroughLoop(
         process.stdin.setRawMode(false);
       }
 
-      // Clear screen before returning to Ink TUI
-      process.stdout.write("\x1b[2J\x1b[H");
+      // Prepare clean state before Ink remounts.
+      process.stdout.write(TERMINAL_PREP);
     };
 
     // Forward ALL stdin → PTY
@@ -132,15 +133,6 @@ function runPassthroughLoop(
       process.stdout.write(data);
     });
 
-    // STEP 2: Replay buffered output that was produced before subscription.
-    // This is synchronous — no events can fire between subscription and replay,
-    // so there's no gap or duplication.
-    if (replayBuffer && agentProcess.buffer.length > 0) {
-      for (const output of agentProcess.buffer) {
-        process.stdout.write(output.data);
-      }
-    }
-
     // Agent exited on its own
     const onDone = () => {
       if (!resolved) {
@@ -161,15 +153,19 @@ function runPassthroughLoop(
     // Start listening to stdin
     process.stdin.on("data", onStdinData);
 
-    // STEP 3: Force resize to ensure PTY matches actual terminal.
-    // Use cols-1 first to guarantee SIGWINCH even if dimensions match.
+    // Ensure PTY matches the current terminal dimensions.
     const cols = process.stdout.columns || 120;
     const rows = process.stdout.rows || 40;
-    agentProcess.resize(cols - 1, rows);
-    setTimeout(() => {
-      if (!resolved) {
-        agentProcess.resize(cols, rows);
-      }
-    }, 50);
+    agentProcess.resize(cols, rows);
+
+    // Existing full-screen sessions may need an explicit repaint.
+    if (opts.requestRepaint) {
+      setTimeout(() => {
+        if (!resolved) {
+          // Ctrl+L — widely supported redraw shortcut for TUIs.
+          agentProcess.send("\x0c");
+        }
+      }, 40);
+    }
   });
 }
