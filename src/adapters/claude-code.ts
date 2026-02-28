@@ -14,11 +14,17 @@ import { spawnPty } from "./pty-helpers.js";
 
 /**
  * Build a clean env for spawning Claude sub-processes.
- * Removes variables that prevent nested Claude Code sessions.
+ * Removes ALL variables that prevent nested Claude Code sessions.
  */
 function cleanClaudeEnv(extra?: Record<string, string>): Record<string, string> {
-  const { CLAUDECODE, CLAUDE_CODE, ...rest } = process.env as Record<string, string>;
-  return { ...rest, ...extra };
+  const clean: Record<string, string> = {};
+  for (const [key, val] of Object.entries(process.env)) {
+    if (val === undefined) continue;
+    // Strip CLAUDECODE, CLAUDE_CODE, CLAUDE_CODE_ENTRYPOINT, CLAUDE_CODE_* etc.
+    if (key === "CLAUDECODE" || key.startsWith("CLAUDE_CODE")) continue;
+    clean[key] = val;
+  }
+  return { ...clean, ...extra };
 }
 
 export class ClaudeCodeAdapter implements AgentAdapter {
@@ -245,17 +251,12 @@ function createClaudeStreamJson(options: {
     emitter.emit("data", out.data);
   };
 
-  const args = ["-p", "--output-format", "stream-json", "--verbose", task];
-  const child = spawn("claude", args, { cwd, env, stdio: "pipe" });
+  // -p doesn't support stream-json, so pipe the prompt via stdin instead.
+  const args = ["--output-format", "stream-json", "--verbose"];
+  const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+  child.stdin.write(task + "\n");
+  child.stdin.end();
   currentStatus = "running";
-
-  // Immediate feedback so the view isn't blank while Claude starts
-  pushOutput({
-    type: "system",
-    data: `Starting Claude Code…\n`,
-    timestamp: Date.now(),
-    activity: { kind: "init", model: "…", sessionId: "", tools: [] },
-  });
 
   let lineBuf = "";
   let stderr = "";
@@ -443,7 +444,7 @@ function createClaudeTextBridge(options: {
     }
     args.push(prompt);
 
-    const child = spawn("claude", args, { cwd, env, stdio: "pipe" });
+    const child = spawn("claude", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     activeChild = child;
 
     let lineBuf = "";
