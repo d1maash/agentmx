@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { AgentSession } from "../hooks/useAgents.js";
-import type { ClaudeActivity, AgentOutput } from "../../adapters/types.js";
+import type { ClaudeActivity } from "../../adapters/types.js";
 import { getRecentTerminalLines } from "../utils/terminal.js";
 
 interface AgentViewProps {
@@ -20,17 +20,16 @@ function hasActivityData(session: AgentSession): boolean {
 }
 
 /** Render a single activity item with appropriate colors */
-function ActivityItem({ item }: { item: AgentOutput }) {
-  const activity = item.activity as ClaudeActivity;
+function ActivityItem({ activity, data }: { activity?: ClaudeActivity; data: string }) {
   if (!activity) {
-    return <Text wrap="truncate">{item.data.trimEnd()}</Text>;
+    return <Text wrap="truncate">{data.trimEnd()}</Text>;
   }
 
   switch (activity.kind) {
     case "init":
       return (
         <Text dimColor wrap="truncate">
-          ● Session started · {activity.model}
+          Session started · {activity.model}
         </Text>
       );
 
@@ -40,7 +39,8 @@ function ActivityItem({ item }: { item: AgentOutput }) {
       return (
         <Text wrap="truncate">
           <Text color="yellow" bold>{label}</Text>
-          <Text> {detail}</Text>
+          <Text> {detail || (activity.streaming ? "..." : "")}</Text>
+          {activity.streaming && <Text color="yellow"> </Text>}
         </Text>
       );
     }
@@ -48,26 +48,31 @@ function ActivityItem({ item }: { item: AgentOutput }) {
     case "tool_result":
       return (
         <Text dimColor wrap="truncate">
-          {"  → "}{truncateStr(activity.content.replace(/\n/g, " "), 100)}
+          {"  -> "}{truncateStr(activity.content.replace(/\n/g, " "), 100)}
         </Text>
       );
 
-    case "text":
+    case "text": {
+      const text = activity.text.trimEnd();
+      if (!text && activity.streaming) {
+        return <Text dimColor wrap="truncate">thinking...</Text>;
+      }
       return (
         <Text wrap="truncate">
-          {activity.text.trimEnd()}
+          {text}{activity.streaming ? " ..." : ""}
         </Text>
       );
+    }
 
     case "cost":
       return (
         <Text color="cyan" wrap="truncate">
-          ✓ Done · ${activity.totalCost.toFixed(4)} · {(activity.durationMs / 1000).toFixed(1)}s
+          Done · ${activity.totalCost.toFixed(4)} · {(activity.durationMs / 1000).toFixed(1)}s
         </Text>
       );
 
     default:
-      return <Text wrap="truncate">{item.data.trimEnd()}</Text>;
+      return <Text wrap="truncate">{data.trimEnd()}</Text>;
   }
 }
 
@@ -101,17 +106,18 @@ function truncateStr(s: string, max: number): string {
 /** Renders structured activity view for Claude Code */
 function ActivityView({ session }: { session: AgentSession }) {
   const maxItems = process.stdout.rows ? process.stdout.rows - 8 : 20;
-  const items = useMemo(() => {
-    // Show ALL buffer items — ActivityItem handles both activity and raw text
-    return session.buffer.slice(-Math.max(1, maxItems));
-  }, [session.buffer.length, maxItems]);
+  // No useMemo — buffer entries are mutated in-place for streaming updates.
+  // The 200ms poll in useAgents triggers re-renders that pick up mutations.
+  const items = session.buffer.slice(-Math.max(1, maxItems));
 
   return (
     <Box flexDirection="column" flexGrow={1} paddingX={1}>
       {items.length === 0 ? (
         <Text dimColor>Waiting for output from {session.displayName}...</Text>
       ) : (
-        items.map((item, i) => <ActivityItem key={i} item={item} />)
+        items.map((item, i) => (
+          <ActivityItem key={i} activity={item.activity} data={item.data} />
+        ))
       )}
     </Box>
   );

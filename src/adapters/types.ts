@@ -2,8 +2,8 @@ export type AgentStatus = "idle" | "spawning" | "running" | "error" | "done";
 
 export type ClaudeActivity =
   | { kind: "init"; model: string; sessionId: string; tools: string[] }
-  | { kind: "text"; text: string }
-  | { kind: "tool_call"; toolName: string; toolId: string; input: Record<string, unknown> }
+  | { kind: "text"; text: string; streaming?: boolean }
+  | { kind: "tool_call"; toolName: string; toolId: string; input: Record<string, unknown>; streaming?: boolean }
   | { kind: "tool_result"; toolId: string; content: string; isError?: boolean }
   | { kind: "cost"; totalCost: number; durationMs: number; usage?: Record<string, unknown> };
 
