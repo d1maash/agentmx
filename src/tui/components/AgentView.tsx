@@ -221,11 +221,11 @@ function EmptyView() {
       alignItems="center"
     >
       <Text bold color="yellow">
-        AgentMux
+        AgentMX
       </Text>
       <Text dimColor>No agents running.</Text>
       <Text dimColor>
-        Press Ctrl+N to start an agent or use: agentmux run {"\"task\""}
+        Press Ctrl+N to start an agent or use: agentmx run {"\"task\""}
       </Text>
     </Box>
   );

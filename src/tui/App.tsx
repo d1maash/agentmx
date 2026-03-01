@@ -124,7 +124,7 @@ export function App({
     },
   });
 
-  // Initialize with task if provided (for `agentmux run`)
+  // Initialize with task if provided (for `agentmx run`)
   React.useEffect(() => {
     if (initialized) return;
     setInitialized(true);

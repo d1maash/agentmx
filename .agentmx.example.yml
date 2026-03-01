@@ -1,5 +1,5 @@
-# AgentMux Configuration
-# Copy as .agentmux.yml to your project root
+# AgentMX Configuration
+# Copy as .agentmx.yml to your project root
 
 default_agent: claude-code
 
