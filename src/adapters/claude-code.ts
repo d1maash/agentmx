@@ -14,7 +14,7 @@ import { appendFileSync } from "node:fs";
 import { spawnPty } from "./pty-helpers.js";
 
 function debugLog(msg: string) {
-  try { appendFileSync("/tmp/agentmux-debug.log", `${Date.now()} ${msg}\n`); } catch {}
+  try { appendFileSync("/tmp/agentmx-debug.log", `${Date.now()} ${msg}\n`); } catch {}
 }
 
 const require = createRequire(import.meta.url);

@@ -8,7 +8,7 @@ import { pipeCommand } from "./commands/pipe.js";
 const program = new Command();
 
 program
-  .name("agentmux")
+  .name("agentmx")
   .description("Multi-agent CLI orchestrator for AI coding agents")
   .version("0.1.0");
 

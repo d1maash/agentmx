@@ -1,11 +1,11 @@
 {
-  "name": "agentmux",
+  "name": "agentmx",
   "version": "0.1.0",
   "description": "Multi-agent CLI orchestrator for AI coding agents",
   "type": "module",
   "bin": {
-    "agentmux": "./dist/cli/index.js",
-    "amux": "./dist/cli/index.js"
+    "agentmx": "./dist/cli/index.js",
+    "amx": "./dist/cli/index.js"
   },
   "scripts": {
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true",

@@ -221,11 +221,11 @@ function EmptyView() {
       alignItems="center"
     >
       <Text bold color="yellow">
-        AgentMux
+        AgentMX
       </Text>
       <Text dimColor>No agents running.</Text>
       <Text dimColor>
-        Press Ctrl+N to start an agent or use: agentmux run {"\"task\""}
+        Press Ctrl+N to start an agent or use: agentmx run {"\"task\""}
       </Text>
     </Box>
   );
@@ -239,7 +239,6 @@ function CodexLine({ line }: { line: string }) {
   const reasoning = line.match(/^\[codex\]\[reasoning\]\s*(.*)$/);
   if (reasoning) {
     return (
-      <Text wrap="truncate">
       <Text wrap="wrap">
         <Text color="cyan" bold>[codex][reasoning]</Text>
         {reasoning[1] ? (

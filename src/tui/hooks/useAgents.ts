@@ -76,7 +76,7 @@ export function useAgents(processManager: ProcessManager, config: Config) {
     async (agentName: string, task: string) => {
       const adapter = adapters.get(agentName);
       if (!adapter) {
-        setError(`Agent "${agentName}" is not configured. Check .agentmux.yml`);
+        setError(`Agent "${agentName}" is not configured. Check .agentmx.yml`);
         return undefined;
       }
 
