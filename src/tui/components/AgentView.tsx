@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from "react";
 import { Box, Text } from "ink";
 import type { AgentSession } from "../hooks/useAgents.js";
+import type { AgentOutput } from "../../adapters/types.js";
 import type { ClaudeActivity } from "../../adapters/types.js";
 import { getTerminalViewportLinesFromOutputBuffer } from "../utils/terminal.js";
 
