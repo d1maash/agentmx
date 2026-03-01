@@ -585,7 +585,7 @@ function createClaudeStreamJson(options: {
   };
 }
 
-/** Interactive text bridge — spawns a PTY per prompt, parses stream-json */
+/** Interactive text bridge — spawns a PTY per prompt with full streaming */
 function createClaudeTextBridge(options: {
   cwd: string;
   env: Record<string, string>;
@@ -615,13 +615,187 @@ function createClaudeTextBridge(options: {
     resolveDone({ exitCode });
   };
 
-  const pushOutput = (data: string, type: AgentOutput["type"] = "stdout") => {
-    if (!data) return;
-    const out: AgentOutput = { type, data, timestamp: Date.now() };
+  const pushOutput = (out: AgentOutput) => {
     buffer.push(out);
     emitter.emit("output", out);
-    emitter.emit("data", data);
+    emitter.emit("data", out.data);
   };
+
+  // --- Streaming state (shared across prompts) ---
+  const activeBlocks = new Map<number, {
+    type: "thinking" | "text" | "tool_use";
+    bufferIndex: number;
+    accText: string;
+    accJson: string;
+    toolName?: string;
+    toolId?: string;
+  }>();
+  let hasStreamEvents = false;
+
+  function handleParsedEvent(event: Record<string, unknown>) {
+    const type = event.type as string | undefined;
+
+    // Extract session_id from any event that has it
+    if (typeof event.session_id === "string") {
+      sessionId = event.session_id;
+    }
+
+    if (type === "stream_event") {
+      hasStreamEvents = true;
+      const se = event.event as Record<string, unknown>;
+      if (se) handleStreamSubEvent(se);
+      return;
+    }
+
+    if (type === "assistant" && hasStreamEvents) return;
+    if (type === "rate_limit_event") return;
+
+    const outputs = processStreamEvent(event);
+    for (const out of outputs) pushOutput(out);
+  }
+
+  function handleStreamSubEvent(se: Record<string, unknown>) {
+    const seType = se.type as string;
+
+    switch (seType) {
+      case "message_start":
+        activeBlocks.clear();
+        break;
+
+      case "content_block_start": {
+        const index = se.index as number;
+        const block = se.content_block as Record<string, unknown>;
+        if (!block) break;
+        const blockType = block.type as string;
+
+        if (blockType === "thinking") {
+          const out: AgentOutput = {
+            type: "stdout",
+            data: "thinking...\n",
+            timestamp: Date.now(),
+            activity: { kind: "thinking", text: "", streaming: true },
+          };
+          pushOutput(out);
+          activeBlocks.set(index, {
+            type: "thinking",
+            bufferIndex: buffer.length - 1,
+            accText: "",
+            accJson: "",
+          });
+        } else if (blockType === "text") {
+          const out: AgentOutput = {
+            type: "stdout",
+            data: "",
+            timestamp: Date.now(),
+            activity: { kind: "text", text: "", streaming: true },
+          };
+          pushOutput(out);
+          activeBlocks.set(index, {
+            type: "text",
+            bufferIndex: buffer.length - 1,
+            accText: "",
+            accJson: "",
+          });
+        } else if (blockType === "tool_use") {
+          const toolName = String(block.name ?? "unknown");
+          const toolId = String(block.id ?? "");
+          const out: AgentOutput = {
+            type: "stdout",
+            data: `[${toolName}] ...\n`,
+            timestamp: Date.now(),
+            activity: { kind: "tool_call", toolName, toolId, input: {}, streaming: true },
+          };
+          pushOutput(out);
+          activeBlocks.set(index, {
+            type: "tool_use",
+            bufferIndex: buffer.length - 1,
+            accText: "",
+            accJson: "",
+            toolName,
+            toolId,
+          });
+        }
+        break;
+      }
+
+      case "content_block_delta": {
+        const index = se.index as number;
+        const delta = se.delta as Record<string, unknown>;
+        if (!delta) break;
+        const deltaType = delta.type as string;
+        const block = activeBlocks.get(index);
+        if (!block) break;
+
+        if (deltaType === "thinking_delta" && block.type === "thinking") {
+          const chunk = (delta.thinking as string) ?? "";
+          if (chunk) {
+            block.accText += chunk;
+            const entry = buffer[block.bufferIndex];
+            if (entry) {
+              entry.data = block.accText;
+              const act = entry.activity;
+              if (act && act.kind === "thinking") act.text = block.accText;
+            }
+          }
+        } else if (deltaType === "text_delta" && block.type === "text") {
+          block.accText += delta.text as string;
+          const entry = buffer[block.bufferIndex];
+          if (entry) {
+            entry.data = block.accText;
+            const act = entry.activity;
+            if (act && act.kind === "text") act.text = block.accText;
+          }
+        } else if (deltaType === "input_json_delta" && block.type === "tool_use") {
+          block.accJson += delta.partial_json as string;
+          const entry = buffer[block.bufferIndex];
+          if (entry) {
+            try {
+              const input = JSON.parse(block.accJson) as Record<string, unknown>;
+              entry.data = `${formatToolCall(block.toolName!, input)}\n`;
+              const act = entry.activity;
+              if (act && act.kind === "tool_call") act.input = input;
+            } catch {
+              const hint = block.accJson.replace(/[{}"]/g, "").trim();
+              if (hint) entry.data = `[${block.toolName}] ${truncate(hint, 60)}\n`;
+            }
+          }
+        }
+        break;
+      }
+
+      case "content_block_stop": {
+        const index = se.index as number;
+        const block = activeBlocks.get(index);
+        if (!block) break;
+
+        const entry = buffer[block.bufferIndex];
+        if (entry) {
+          if (block.type === "tool_use" && block.accJson) {
+            try {
+              const input = JSON.parse(block.accJson) as Record<string, unknown>;
+              entry.data = `${formatToolCall(block.toolName!, input)}\n`;
+              const act = entry.activity;
+              if (act && act.kind === "tool_call") { act.input = input; act.streaming = false; }
+            } catch { /* ignore */ }
+          }
+          if (block.type === "text") {
+            const act = entry.activity;
+            if (act && act.kind === "text") act.streaming = false;
+          }
+          if (block.type === "thinking") {
+            const act = entry.activity;
+            if (act && act.kind === "thinking") act.streaming = false;
+          }
+        }
+        activeBlocks.delete(index);
+        break;
+      }
+
+      case "message_stop":
+        activeBlocks.clear();
+        break;
+    }
+  }
 
   const runNext = () => {
     if (stopped || processing) return;
@@ -635,11 +809,17 @@ function createClaudeTextBridge(options: {
     processing = true;
     currentStatus = "running";
 
-    const args = ["-p", "--output-format", "stream-json", "--verbose"];
+    // Reset streaming state for new prompt
+    activeBlocks.clear();
+    hasStreamEvents = false;
+
+    const args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
     if (sessionId) {
       args.push("--resume", sessionId);
     }
     args.push(prompt);
+
+    debugLog(`BRIDGE SPAWN: claude ${args.join(" ")}`);
 
     const child = pty.spawn("claude", args, {
       name: "xterm-256color",
@@ -651,7 +831,6 @@ function createClaudeTextBridge(options: {
     activePty = child;
 
     let lineBuf = "";
-    let hasOutput = false;
 
     child.onData((rawData: string) => {
       lineBuf += stripAnsi(rawData);
@@ -662,48 +841,16 @@ function createClaudeTextBridge(options: {
         const trimmed = line.trim();
         if (!trimmed) continue;
         try {
-          const event = JSON.parse(trimmed) as {
-            type?: string;
-            subtype?: string;
-            session_id?: string;
-            is_error?: boolean;
-            result?: string;
-            message?: {
-              content?: Array<{ type: string; text?: string }>;
-            };
-          };
-
-          if (typeof event.session_id === "string") {
-            sessionId = event.session_id;
-          }
-
-          if (event.type === "assistant" && Array.isArray(event.message?.content)) {
-            for (const block of event.message!.content) {
-              if (block.type === "text" && block.text) {
-                pushOutput(block.text.endsWith("\n") ? block.text : `${block.text}\n`, "stdout");
-                hasOutput = true;
-              }
-            }
-          }
-
-          if (event.type === "result") {
-            if (event.is_error) {
-              currentStatus = "error";
-            }
-            if (!hasOutput && typeof event.result === "string" && event.result.length > 0) {
-              const text = event.result.startsWith("\n") ? event.result.slice(1) : event.result;
-              pushOutput(text.endsWith("\n") ? text : `${text}\n`, "stdout");
-              hasOutput = true;
-            }
-          }
+          const event = JSON.parse(trimmed) as Record<string, unknown>;
+          handleParsedEvent(event);
         } catch {
-          pushOutput(`${trimmed}\n`, "stdout");
-          hasOutput = true;
+          pushOutput({ type: "stdout", data: `${trimmed}\n`, timestamp: Date.now() });
         }
       }
     });
 
     child.onExit(({ exitCode }: { exitCode: number }) => {
+      debugLog(`BRIDGE EXIT: code=${exitCode} bufLen=${buffer.length}`);
       activePty = null;
       processing = false;
 
@@ -711,11 +858,10 @@ function createClaudeTextBridge(options: {
       if (lineBuf.trim()) {
         const trimmed = lineBuf.trim();
         try {
-          const event = JSON.parse(trimmed) as { type?: string; session_id?: string; is_error?: boolean };
-          if (typeof event.session_id === "string") sessionId = event.session_id;
-          if (event.type === "result" && event.is_error) currentStatus = "error";
+          const event = JSON.parse(trimmed) as Record<string, unknown>;
+          handleParsedEvent(event);
         } catch {
-          pushOutput(`${trimmed}\n`, "stdout");
+          pushOutput({ type: "stdout", data: `${trimmed}\n`, timestamp: Date.now() });
         }
       }
 

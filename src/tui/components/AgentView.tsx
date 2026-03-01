@@ -28,8 +28,75 @@ function hasActivityData(session: AgentSession): boolean {
     session.buffer.some((b) => b.activity !== undefined);
 }
 
-/** Render a single activity item with appropriate colors */
-function ActivityItem({ activity, data }: { activity?: ClaudeActivity; data: string }) {
+/** A single visual line to render — all lines are exactly 1 terminal row */
+type VisualLine =
+  | { kind: "text-line"; text: string; streaming: boolean }
+  | { kind: "thinking-line"; text: string; streaming: boolean }
+  | { kind: "item"; activity?: ClaudeActivity; data: string };
+
+/** Split buffer items into visual lines (1 line = 1 terminal row) */
+function flattenToVisualLines(items: AgentOutput[], cols: number): VisualLine[] {
+  const lines: VisualLine[] = [];
+  const wrapWidth = Math.max(20, cols);
+
+  for (const item of items) {
+    const act = item.activity;
+
+    if (act?.kind === "text" || act?.kind === "thinking") {
+      const text = act.text.trimEnd();
+      const lineKind = act.kind === "thinking" ? "thinking-line" as const : "text-line" as const;
+
+      if (!text) {
+        if (act.streaming) {
+          lines.push({ kind: lineKind, text: act.kind === "thinking" ? "thinking..." : "...", streaming: true });
+        }
+        continue;
+      }
+
+      // Split into visual lines: first by \n, then wrap long lines
+      for (const raw of text.split("\n")) {
+        if (raw.length <= wrapWidth) {
+          lines.push({ kind: lineKind, text: raw, streaming: false });
+        } else {
+          for (let i = 0; i < raw.length; i += wrapWidth) {
+            lines.push({ kind: lineKind, text: raw.slice(i, i + wrapWidth), streaming: false });
+          }
+        }
+      }
+      // Mark last line as streaming if active
+      if (act.streaming && lines.length > 0) {
+        const last = lines[lines.length - 1];
+        if (last.kind === lineKind) last.streaming = true;
+      }
+    } else {
+      // tool_call, tool_result, init, cost, raw text — always 1 line
+      lines.push({ kind: "item", activity: act, data: item.data });
+    }
+  }
+
+  return lines;
+}
+
+/** Render a single visual line */
+function VisualLineView({ line }: { line: VisualLine }) {
+  if (line.kind === "text-line") {
+    return (
+      <Text wrap="truncate">
+        {line.text}{line.streaming ? " ..." : ""}
+      </Text>
+    );
+  }
+
+  if (line.kind === "thinking-line") {
+    return (
+      <Text dimColor italic wrap="truncate">
+        {line.text}{line.streaming ? " ..." : ""}
+      </Text>
+    );
+  }
+
+  // kind === "item" — single-line activity items
+  const { activity, data } = line;
   if (!activity) {
     return <Text wrap="truncate">{toSingleLine(data)}</Text>;
   }
@@ -41,18 +108,6 @@ function ActivityItem({ activity, data }: { activity?: ClaudeActivity; data: str
           Session started · {activity.model}
         </Text>
       );
-
-    case "thinking": {
-      const thought = toSingleLine(activity.text);
-      if (!thought && activity.streaming) {
-        return <Text dimColor italic wrap="truncate">thinking...</Text>;
-      }
-      return (
-        <Text dimColor italic wrap="truncate">
-          {thought}{activity.streaming ? " ..." : ""}
-        </Text>
-      );
-    }
 
     case "tool_call": {
       const label = `[${activity.toolName}]`;
@@ -71,18 +126,6 @@ function ActivityItem({ activity, data }: { activity?: ClaudeActivity; data: str
           {"  -> "}{truncateStr(activity.content.replace(/\n/g, " "), 100)}
         </Text>
       );
-
-    case "text": {
-      const text = toSingleLine(activity.text);
-      if (!text && activity.streaming) {
-        return <Text dimColor wrap="truncate">...</Text>;
-      }
-      return (
-        <Text wrap="truncate">
-          {text}{activity.streaming ? " ..." : ""}
-        </Text>
-      );
-    }
 
     case "cost":
       return (
@@ -123,7 +166,7 @@ function truncateStr(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
-/** Renders structured activity view for Claude Code */
+/** Renders structured activity view for Claude Code (line-based) */
 function ActivityView({
   session,
   scrollOffset,
@@ -133,19 +176,22 @@ function ActivityView({
   scrollOffset: number;
   onScrollInfo?: (info: ScrollInfo) => void;
 }) {
-  const maxItems = Math.max(1, (process.stdout.rows ?? 30) - VIEW_RESERVED_LINES);
-  // No useMemo — buffer entries are mutated in-place for streaming updates.
-  // The 200ms poll in useAgents triggers re-renders that pick up mutations.
-  const totalItems = session.buffer.length;
-  const maxOffset = Math.max(0, totalItems - maxItems);
+  const maxLines = Math.max(1, (process.stdout.rows ?? 30) - VIEW_RESERVED_LINES);
+  const cols = Math.max(20, (process.stdout.columns ?? 80) - 4);
+
+  // Flatten buffer items into visual lines (1 line = 1 terminal row)
+  // No useMemo — buffer entries are mutated in-place for streaming updates
+  const allLines = flattenToVisualLines(session.buffer, cols);
+  const totalLines = allLines.length;
+  const maxOffset = Math.max(0, totalLines - maxLines);
   const effectiveOffset = Math.min(Math.max(0, scrollOffset), maxOffset);
-  const start = Math.max(0, totalItems - maxItems - effectiveOffset);
-  const end = Math.min(totalItems, start + maxItems);
-  const items = session.buffer.slice(start, end);
+  const start = Math.max(0, totalLines - maxLines - effectiveOffset);
+  const end = Math.min(totalLines, start + maxLines);
+  const visibleLines = allLines.slice(start, end);
 
   useEffect(() => {
-    onScrollInfo?.({ totalItems, maxOffset, effectiveOffset });
-  }, [onScrollInfo, totalItems, maxOffset, effectiveOffset]);
+    onScrollInfo?.({ totalItems: totalLines, maxOffset, effectiveOffset });
+  }, [onScrollInfo, totalLines, maxOffset, effectiveOffset]);
 
   return (
     <Box
@@ -155,12 +201,10 @@ function ActivityView({
       overflow="hidden"
       width="100%"
     >
-      {items.length === 0 ? (
+      {visibleLines.length === 0 ? (
         <Text dimColor>Waiting for output from {session.displayName}...</Text>
       ) : (
-        items.map((item, i) => (
-          <ActivityItem key={i} activity={item.activity} data={item.data} />
-        ))
+        visibleLines.map((vl, i) => <VisualLineView key={i} line={vl} />)
       )}
     </Box>
   );
@@ -187,6 +231,130 @@ function EmptyView() {
   );
 }
 
+function CodexLine({ line }: { line: string }) {
+  if (!line.startsWith("[codex]")) {
+    return <Text wrap="wrap">{line}</Text>;
+  }
+
+  const reasoning = line.match(/^\[codex\]\[reasoning\]\s*(.*)$/);
+  if (reasoning) {
+    return (
+      <Text wrap="truncate">
+      <Text wrap="wrap">
+        <Text color="cyan" bold>[codex][reasoning]</Text>
+        {reasoning[1] ? (
+          <Text dimColor italic> {reasoning[1]}</Text>
+        ) : null}
+      </Text>
+    );
+  }
+
+  const commandStart = line.match(/^\[codex\]\[command:start\]\s*(.*)$/);
+  if (commandStart) {
+    return (
+      <Text wrap="wrap">
+        <Text color="yellow" bold>[codex][command:start]</Text>
+        {commandStart[1] ? <Text> {commandStart[1]}</Text> : null}
+      </Text>
+    );
+  }
+
+  const commandEnd = line.match(/^\[codex\]\[command:end\]\s+exit=([^\s]+)\s*(.*)$/);
+  if (commandEnd) {
+    const exitCode = commandEnd[1];
+    const ok = exitCode === "0";
+    return (
+      <Text wrap="wrap">
+        <Text color={ok ? "green" : "red"} bold>[codex][command:end]</Text>
+        <Text> exit=</Text>
+        <Text color={ok ? "green" : "red"}>{exitCode}</Text>
+        {commandEnd[2] ? <Text> {commandEnd[2]}</Text> : null}
+      </Text>
+    );
+  }
+
+  const commandOutput = line.match(/^\[codex\]\[command:output\]\s*(.*)$/);
+  if (commandOutput) {
+    return (
+      <Text wrap="wrap">
+        <Text color="blue" bold>[codex][command:output]</Text>
+        {commandOutput[1] ? <Text> {commandOutput[1]}</Text> : null}
+      </Text>
+    );
+  }
+
+  const sessionStarted = line.match(/^\[codex\]\s*(Session started:.*)$/);
+  if (sessionStarted) {
+    return (
+      <Text wrap="wrap">
+        <Text color="cyan" bold>[codex]</Text>
+        <Text color="cyan"> {sessionStarted[1]}</Text>
+      </Text>
+    );
+  }
+
+  const turnComplete = line.match(/^\[codex\]\s*(Turn complete.*)$/);
+  if (turnComplete) {
+    return (
+      <Text wrap="wrap">
+        <Text color="green" bold>[codex]</Text>
+        <Text color="green"> {turnComplete[1]}</Text>
+      </Text>
+    );
+  }
+
+  const approval = line.match(/^\[codex\]\s*(Approval required.*)$/);
+  if (approval) {
+    return (
+      <Text wrap="wrap">
+        <Text color="yellow" bold>[codex]</Text>
+        <Text color="yellow"> {approval[1]}</Text>
+      </Text>
+    );
+  }
+
+  const waitingInput = line.match(/^\[codex\]\s*(Waiting for your input.*)$/);
+  if (waitingInput) {
+    return (
+      <Text wrap="wrap">
+        <Text color="magenta" bold>[codex]</Text>
+        <Text color="magenta"> {waitingInput[1]}</Text>
+      </Text>
+    );
+  }
+
+  const planStep = line.match(/^\[codex\]\s*(Plan-related.*)$/);
+  if (planStep) {
+    return (
+      <Text wrap="wrap">
+        <Text color="blue" bold>[codex]</Text>
+        <Text color="blue"> {planStep[1]}</Text>
+      </Text>
+    );
+  }
+
+  if (/^\[codex\]\s*Working\.\.\.$/.test(line)) {
+    return (
+      <Text wrap="wrap">
+        <Text color="blue" bold>[codex]</Text>
+        <Text color="blue"> Working...</Text>
+      </Text>
+    );
+  }
+
+  const generic = line.match(/^(\[codex\](?:\[[^\]]+\])?)\s*(.*)$/);
+  if (generic) {
+    return (
+      <Text wrap="wrap">
+        <Text color="cyan" bold>{generic[1]}</Text>
+        {generic[2] ? <Text> {generic[2]}</Text> : null}
+      </Text>
+    );
+  }
+
+  return <Text wrap="wrap">{line}</Text>;
+}
+
 /** Renders live output for an active session (raw text fallback) */
 function SessionView({
   session,
@@ -203,6 +371,7 @@ function SessionView({
     [session.id, session.buffer.length, maxLines, scrollOffset]
   );
   const lines = viewport.lines;
+  const isCodex = session.agentName === "codex";
 
   useEffect(() => {
     onScrollInfo?.({
@@ -229,9 +398,11 @@ function SessionView({
         <Text dimColor>Waiting for output from {session.displayName}...</Text>
       ) : (
         lines.map((line, i) => (
-          <Text key={i} wrap="truncate">
-            {line}
-          </Text>
+          isCodex ? <CodexLine key={i} line={line} /> : (
+            <Text key={i} wrap="truncate">
+              {line}
+            </Text>
+          )
         ))
       )}
     </Box>
