@@ -7,8 +7,6 @@ on:
       - '**.md'
       - '.github/**'
       - '!.github/workflows/publish.yml'
-  release:
-    types: [published]
 
 jobs:
   publish:
@@ -19,19 +17,39 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if version changed
+        id: version
+        run: |
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          git checkout HEAD~1 -- package.json 2>/dev/null
+          OLD_VERSION=$(node -p "require('./package.json').version")
+          git checkout HEAD -- package.json
+          if [ "$NEW_VERSION" != "$OLD_VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Version changed: $OLD_VERSION -> $NEW_VERSION"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version unchanged: $OLD_VERSION"
+          fi
 
       - uses: pnpm/action-setup@v4
+        if: steps.version.outputs.changed == 'true'
 
       - uses: actions/setup-node@v4
+        if: steps.version.outputs.changed == 'true'
         with:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - run: pnpm install
+        if: steps.version.outputs.changed == 'true'
 
       - run: pnpm run build
+        if: steps.version.outputs.changed == 'true'
 
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: steps.version.outputs.changed == 'true'
