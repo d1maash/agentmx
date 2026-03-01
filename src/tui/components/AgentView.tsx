@@ -239,7 +239,6 @@ function CodexLine({ line }: { line: string }) {
   const reasoning = line.match(/^\[codex\]\[reasoning\]\s*(.*)$/);
   if (reasoning) {
     return (
-      <Text wrap="truncate">
       <Text wrap="wrap">
         <Text color="cyan" bold>[codex][reasoning]</Text>
         {reasoning[1] ? (
