@@ -17,6 +17,7 @@ AgentMX solves this. One terminal. All your agents. Zero context-switching.
 - **Tabbed TUI** — Switch between agents with number keys or arrow keys
 - **Task routing** — Automatically pick the best agent for each task based on regex rules
 - **Pipelines** — Chain agents sequentially, passing output from one to the next
+- **Benchmarking** — Compare agents head-to-head with timing, cost, and output metrics
 - **Parallel execution** — Run the same task on multiple agents side-by-side in split view
 - **Streaming output** — Real-time structured output with thinking blocks, tool calls, and cost tracking
 - **Interactive input** — Send follow-up prompts to any running agent
@@ -55,6 +56,10 @@ agentmx run -a codex "write unit tests for auth.ts"
 
 # Run on multiple agents in parallel
 agentmx run -p claude-code,codex "optimize the database queries"
+
+# Benchmark agents against each other
+agentmx bench "write fibonacci in rust"
+agentmx bench "fix the bug" --agents claude-code,codex
 
 # Chain agents in a pipeline
 agentmx pipe "codex: write tests for utils.ts" "claude-code: refactor the tests"
@@ -146,6 +151,33 @@ agentmx run -p claude-code,codex "review this pull request"
 | `-a, --agent <name>` | Agent to use (default: auto-routed) |
 | `-p, --parallel <agents>` | Comma-separated agents for parallel execution |
 
+### `agentmx bench <task>`
+
+Benchmark a task across agents and compare results side-by-side.
+
+```bash
+agentmx bench "write a hello world in python"
+agentmx bench "implement binary search" --agents claude-code,codex
+```
+
+| Flag | Description |
+|------|-------------|
+| `-a, --agents <list>` | Comma-separated agents to benchmark (default: all enabled) |
+
+Output:
+
+```
+Benchmark Results — "write a hello world in python"
+
+  #  Agent         Time     Exit   Output    Cost
+  ─────────────────────────────────────────────────
+  1  Aider          6.2s      0     1.2 KB      —
+  2  Codex          8.7s      0     3.4 KB      —
+  3  Claude Code   12.3s      0     5.1 KB   $0.04
+
+  Fastest: Aider (6.2s)
+```
+
 ### `agentmx pipe <steps...>`
 
 Run agents in a sequential pipeline. Each step's output is passed as context to the next.
@@ -192,6 +224,10 @@ amx pipe "codex: test" "claude-code: refactor"
 
 - Node.js >= 20
 - At least one AI coding agent installed (Claude Code, Codex, Aider, or custom)
+
+## Documentation
+
+Full documentation with architecture details, adapter system, and advanced usage is available in [docs/guide.md](docs/guide.md).
 
 ## License
 
