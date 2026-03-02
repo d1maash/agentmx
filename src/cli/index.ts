@@ -4,6 +4,7 @@ import { loadConfig } from "../config/loader.js";
 import { interactiveCommand } from "./commands/interactive.js";
 import { runCommand } from "./commands/run.js";
 import { pipeCommand } from "./commands/pipe.js";
+import { benchCommand } from "./commands/bench.js";
 
 const program = new Command();
 
@@ -44,6 +45,19 @@ program
   .action(async (steps: string[]) => {
     const config = await loadConfig();
     await pipeCommand(steps, config);
+  });
+
+// Benchmark mode
+program
+  .command("bench <task>")
+  .description("Benchmark a task across agents and compare results")
+  .option(
+    "-a, --agents <list>",
+    "Agents to benchmark (comma-separated, default: all enabled)"
+  )
+  .action(async (task: string, opts: { agents?: string }) => {
+    const config = await loadConfig();
+    await benchCommand(task, opts, config);
   });
 
 // Config info
