@@ -10,6 +10,7 @@ Full documentation for **agentmx** (alias `amx`) — multi-agent CLI orchestrato
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Commands](#commands)
+  - [init](#init)
   - [interactive](#interactive)
   - [run](#run)
   - [bench](#bench)
@@ -24,6 +25,10 @@ Full documentation for **agentmx** (alias `amx`) — multi-agent CLI orchestrato
   - [Claude Code](#claude-code)
   - [Codex](#codex)
   - [Aider](#aider)
+  - [Gemini CLI](#gemini-cli)
+  - [GitHub Copilot CLI](#github-copilot-cli)
+  - [Cursor Agent](#cursor-agent)
+  - [Goose](#goose)
   - [Custom Agents](#custom-agents)
 - [TUI Interface](#tui-interface)
   - [Keyboard Shortcuts](#keyboard-shortcuts)
@@ -42,7 +47,7 @@ Full documentation for **agentmx** (alias `amx`) — multi-agent CLI orchestrato
 
 ## Overview
 
-AgentMX lets you run multiple AI coding agents (Claude Code, Codex, Aider and others) side-by-side in a single terminal. Instead of switching between tools, you get a unified TUI with tabs, split views, agent pipelines and benchmarking.
+AgentMX lets you run multiple AI coding agents (Claude Code, Codex, Aider, Gemini CLI, GitHub Copilot CLI, Cursor Agent, Goose and others) side-by-side in a single terminal. Instead of switching between tools, you get a unified TUI with tabs, split views, agent pipelines and benchmarking.
 
 Key features:
 
@@ -72,7 +77,7 @@ Requirements:
 
 - Node.js >= 20
 - pnpm
-- At least one supported agent installed (claude, codex, aider, etc.)
+- At least one supported agent installed (`claude`, `codex`, `aider`, `gemini`, `copilot`, `cursor-agent`, `goose`, etc.)
 
 After linking, two commands are available: `agentmx` and `amx` (shorter alias).
 
@@ -81,6 +86,9 @@ After linking, two commands are available: `agentmx` and `amx` (shorter alias).
 ## Quick Start
 
 ```bash
+# Interactive setup — detect installed agents, create .agentmx.yml
+amx init
+
 # Launch interactive TUI
 amx
 
@@ -106,6 +114,62 @@ amx config
 ---
 
 ## Commands
+
+### `init`
+
+```
+amx init
+```
+
+Interactive setup wizard. Automatically detects which AI agents are installed on your system and creates a `.agentmx.yml` configuration file.
+
+**What it does:**
+
+1. Scans your `PATH` for known agents (`claude`, `codex`, `aider`)
+2. Shows which agents are installed and which are missing
+3. Lets you choose which agents to enable (installed agents default to Yes, missing default to No)
+4. Asks you to pick a default agent (if multiple are selected)
+5. Asks you to choose a router mode (`manual`, `rules`, or `auto`)
+6. Generates `.agentmx.yml` in the current directory
+
+If a `.agentmx.yml` already exists, you'll be asked to confirm before overwriting.
+
+**Example session:**
+
+```
+  AgentMX Setup
+  Configure your AI agents
+
+  Scanning for installed agents...
+
+  Found 2 agent(s): Claude Code, Codex
+  Not found: Aider
+
+  Select agents to enable:
+
+  Claude Code (claude) — installed. Enable? [Y/n] y
+  Codex CLI (codex) — installed. Enable? [Y/n] y
+  Aider (aider) — not found. Enable? [y/N] n
+
+  Choose default agent:
+
+    1) Claude Code
+    2) Codex CLI
+
+  Default agent [1]: 1
+
+  Router mode:
+
+    1) manual  — always use default agent
+    2) rules   — route by regex rules
+    3) auto    — automatic routing
+
+  Router mode [1]: 1
+
+  Created .agentmx.yml successfully!
+
+  Run amx to start.
+```
 
 ### `interactive`
 
@@ -280,6 +344,22 @@ agents:
     args: ["--model", "sonnet"]
     enabled: false
 
+  gemini:
+    command: gemini
+    enabled: false
+
+  copilot:
+    command: copilot
+    enabled: false
+
+  cursor:
+    command: cursor-agent
+    enabled: false
+
+  goose:
+    command: goose
+    enabled: false
+
   # Custom agent example
   my-tool:
     command: my-custom-cli
@@ -363,6 +443,34 @@ Thread resumption is supported via `--resume <threadId>` for stateful sessions.
 
 Paul Gauthier's AI pair programming tool. Runs with `--message <task>` for task mode or in raw PTY mode for interactive use.
 
+### Gemini CLI
+
+Google's Gemini CLI adapter:
+
+- **Task mode**: `gemini -p <task>`
+- **Interactive mode**: `gemini`
+
+### GitHub Copilot CLI
+
+GitHub Copilot CLI adapter:
+
+- **Task mode**: `copilot -p <task>`
+- **Interactive mode**: `copilot`
+
+### Cursor Agent
+
+Cursor Agent adapter (`cursor-agent` command):
+
+- **Task mode**: `cursor-agent -p <task>`
+- **Interactive mode**: `cursor-agent`
+
+### Goose
+
+Block's open-source Goose adapter:
+
+- **Task mode**: `goose run --text <task>`
+- **Interactive mode**: `goose session`
+
 ### Custom Agents
 
 Any CLI tool can be used as an agent. Define it in the config:
@@ -445,6 +553,7 @@ src/
 ├── cli/
 │   ├── index.ts                # Entry point — Commander setup
 │   └── commands/
+│       ├── init.ts             # Interactive setup wizard
 │       ├── interactive.ts      # Interactive TUI command
 │       ├── run.ts              # Run task command
 │       ├── bench.ts            # Benchmark command
@@ -455,6 +564,10 @@ src/
 │   ├── claude-code.ts          # Claude Code adapter (stream-json + text bridge)
 │   ├── codex.ts                # Codex adapter (exec + JSON events)
 │   ├── aider.ts                # Aider adapter
+│   ├── gemini.ts               # Gemini CLI adapter
+│   ├── copilot.ts              # GitHub Copilot CLI adapter
+│   ├── cursor.ts               # Cursor Agent adapter
+│   ├── goose.ts                # Goose adapter
 │   ├── custom.ts               # Generic custom agent adapter
 │   └── pty-helpers.ts          # PTY spawning utilities
 ├── core/
@@ -465,6 +578,7 @@ src/
 ├── config/
 │   ├── schema.ts               # Zod validation schemas
 │   ├── loader.ts               # cosmiconfig loader
+│   ├── detect.ts               # Auto-detect installed agents
 │   └── defaults.ts             # Default config values
 └── tui/
     ├── App.tsx                 # Root Ink component
@@ -538,6 +652,10 @@ Adapters are created by `createAdapters(config)` which reads the config and inst
 - `claude-code` -> `ClaudeCodeAdapter` (stream-json parsing, text bridge for interactive)
 - `codex` -> `CodexAdapter` (exec mode, JSON event parsing)
 - `aider` -> `AiderAdapter` (raw PTY)
+- `gemini` -> `GeminiAdapter` (PTY; `gemini -p` task mode)
+- `copilot` -> `CopilotAdapter` (PTY; `copilot -p` task mode)
+- `cursor` -> `CursorAdapter` (PTY; `cursor-agent -p` task mode)
+- `goose` -> `GooseAdapter` (PTY; `goose run --text` task mode)
 - anything else -> `CustomAdapter` (generic PTY wrapper)
 
 ### Process Manager
@@ -633,12 +751,12 @@ amx run "refactor the database layer"
 
 ```yaml
 agents:
-  cursor:
-    command: cursor
-    args: ["--cli"]
+  my-agent:
+    command: my-agent-cli
+    args: ["--flag"]
     enabled: true
 ```
 
 ```bash
-amx run "fix the bug" --agent cursor
+amx run "fix the bug" --agent my-agent
 ```

@@ -1,17 +1,22 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { createRequire } from "node:module";
 import { loadConfig } from "../config/loader.js";
 import { interactiveCommand } from "./commands/interactive.js";
 import { runCommand } from "./commands/run.js";
 import { pipeCommand } from "./commands/pipe.js";
 import { benchCommand } from "./commands/bench.js";
+import { initCommand } from "./commands/init.js";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../../package.json");
 
 const program = new Command();
 
 program
   .name("agentmx")
   .description("Multi-agent CLI orchestrator for AI coding agents")
-  .version("0.1.0");
+  .version(version);
 
 // Interactive mode (default)
 program
@@ -67,6 +72,14 @@ program
   .action(async () => {
     const config = await loadConfig();
     console.log(JSON.stringify(config, null, 2));
+  });
+
+// Init — interactive setup
+program
+  .command("init")
+  .description("Interactive setup: detect agents and create .agentmx.yml")
+  .action(async () => {
+    await initCommand();
   });
 
 program.parse();

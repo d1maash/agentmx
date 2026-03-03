@@ -20,6 +20,11 @@ export const ConfigSchema = z.object({
     .default({
       "claude-code": { command: "claude", args: [], env: {}, enabled: true },
       codex: { command: "codex", args: [], env: {}, enabled: true },
+      aider: { command: "aider", args: [], env: {}, enabled: false },
+      gemini: { command: "gemini", args: [], env: {}, enabled: false },
+      copilot: { command: "copilot", args: [], env: {}, enabled: false },
+      cursor: { command: "cursor-agent", args: [], env: {}, enabled: false },
+      goose: { command: "goose", args: [], env: {}, enabled: false },
     }),
   router: z
     .object({

@@ -41,7 +41,7 @@ node dist/cli/index.js
 src/
   cli/              # CLI entry point and commands
     commands/        # run, pipe, interactive commands
-  adapters/          # Agent adapters (claude-code, codex, aider, custom)
+  adapters/          # Agent adapters (claude-code, codex, aider, gemini, copilot, cursor, goose, custom)
   core/              # Process manager, router, pipeline, session
   config/            # Config schema, loader, defaults
   tui/               # Terminal UI (React/Ink)
