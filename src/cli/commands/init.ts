@@ -27,6 +27,73 @@ async function confirm(
   return answer.toLowerCase().startsWith("y");
 }
 
+function printDetectionTable(agents: KnownAgent[]): void {
+  const installed = agents.filter((a) => a.installed);
+  const missing = agents.filter((a) => !a.installed);
+
+  // Header
+  const total = agents.length;
+  const bar = "─".repeat(52);
+  console.log(`  ${chalk.dim("┌")}${chalk.dim(bar)}${chalk.dim("┐")}`);
+  console.log(
+    `  ${chalk.dim("│")} ${chalk.bold("Agent Detection")}${" ".repeat(36)}${chalk.dim("│")}`,
+  );
+  console.log(
+    `  ${chalk.dim("│")} ${chalk.dim(`${installed.length}/${total} agents found on this system`)}${" ".repeat(52 - 1 - `${installed.length}/${total} agents found on this system`.length)}${chalk.dim("│")}`,
+  );
+  console.log(`  ${chalk.dim("├")}${chalk.dim(bar)}${chalk.dim("┤")}`);
+
+  // Installed agents
+  for (const agent of installed) {
+    const ver = agent.version ? chalk.dim(` v${agent.version}`) : "";
+    const name = chalk.green.bold(agent.displayName);
+    const cmd = chalk.dim(`(${agent.command})`);
+    const check = chalk.green("●");
+    const line = `${check} ${name} ${cmd}${ver}`;
+    const visLen =
+      agent.displayName.length +
+      agent.command.length +
+      3 + // " () "
+      2 + // "● "
+      (agent.version ? ` v${agent.version}`.length : 0);
+    const pad = " ".repeat(Math.max(0, 51 - visLen));
+    console.log(`  ${chalk.dim("│")} ${line}${pad}${chalk.dim("│")}`);
+  }
+
+  // Separator if both sections exist
+  if (installed.length > 0 && missing.length > 0) {
+    console.log(`  ${chalk.dim("├")}${chalk.dim(bar)}${chalk.dim("┤")}`);
+  }
+
+  // Missing agents
+  for (const agent of missing) {
+    const name = chalk.dim(agent.displayName);
+    const cmd = chalk.dim(`(${agent.command})`);
+    const cross = chalk.dim("○");
+    const line = `${cross} ${name} ${cmd}`;
+    const visLen =
+      agent.displayName.length +
+      agent.command.length +
+      3 + // " () "
+      2; // "○ "
+    const pad = " ".repeat(Math.max(0, 51 - visLen));
+    console.log(`  ${chalk.dim("│")} ${line}${pad}${chalk.dim("│")}`);
+  }
+
+  console.log(`  ${chalk.dim("└")}${chalk.dim(bar)}${chalk.dim("┘")}`);
+
+  // Install hints for missing agents
+  if (missing.length > 0) {
+    console.log();
+    console.log(`  ${chalk.dim("Install missing agents:")}`);
+    for (const agent of missing) {
+      console.log(
+        `  ${chalk.dim("→")} ${chalk.white(agent.displayName)}: ${chalk.cyan.underline(agent.installUrl)}`,
+      );
+    }
+  }
+}
+
 async function selectAgents(
   rl: ReturnType<typeof createInterface>,
   agents: KnownAgent[],
@@ -34,6 +101,11 @@ async function selectAgents(
   const selected: KnownAgent[] = [];
 
   for (const agent of agents) {
+    const icon = agent.installed ? chalk.green("●") : chalk.dim("○");
+    const name = agent.installed
+      ? chalk.bold(agent.displayName)
+      : chalk.dim(agent.displayName);
+    const cmd = chalk.dim(`(${agent.command})`);
     const status = agent.installed
       ? chalk.green("installed")
       : chalk.red("not found");
@@ -41,7 +113,7 @@ async function selectAgents(
     const defaultEnable = agent.installed;
     const enabled = await confirm(
       rl,
-      `  ${agent.displayName} (${chalk.dim(agent.command)}) — ${status}. Enable?`,
+      `  ${icon} ${name} ${cmd} — ${status}. Enable?`,
       defaultEnable,
     );
 
@@ -112,19 +184,8 @@ export async function initCommand(): Promise<void> {
   console.log(chalk.dim("  Scanning for installed agents...\n"));
   const agents = detectAgents();
 
-  const installed = agents.filter((a) => a.installed);
-  const notInstalled = agents.filter((a) => !a.installed);
-
-  if (installed.length > 0) {
-    console.log(
-      `  Found ${chalk.green(installed.length)} agent(s): ${installed.map((a) => chalk.bold(a.displayName)).join(", ")}`,
-    );
-  }
-  if (notInstalled.length > 0) {
-    console.log(
-      `  Not found: ${notInstalled.map((a) => chalk.dim(a.displayName)).join(", ")}`,
-    );
-  }
+  // Print detection table
+  printDetectionTable(agents);
   console.log();
 
   // Interactive selection
