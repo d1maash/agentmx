@@ -1,6 +1,6 @@
 {
   "name": "agentmx",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Multi-agent CLI orchestrator for AI coding agents. Run Claude Code, Codex, Aider, Gemini CLI, Copilot CLI, Cursor Agent, Goose and others side-by-side in a single terminal.",
   "type": "module",
   "bin": {
