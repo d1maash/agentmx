@@ -3,6 +3,10 @@ import type { Config } from "../config/schema.js";
 import { ClaudeCodeAdapter } from "./claude-code.js";
 import { CodexAdapter } from "./codex.js";
 import { AiderAdapter } from "./aider.js";
+import { GeminiAdapter } from "./gemini.js";
+import { CopilotAdapter } from "./copilot.js";
+import { CursorAdapter } from "./cursor.js";
+import { GooseAdapter } from "./goose.js";
 import { CustomAdapter } from "./custom.js";
 
 /**
@@ -28,6 +32,34 @@ export function createAdapters(config: Config): Map<string, AgentAdapter> {
         break;
       case "aider":
         adapter = new AiderAdapter();
+        break;
+      case "gemini":
+        adapter = new GeminiAdapter({
+          command: agentConfig.command,
+          defaultArgs: agentConfig.args,
+          defaultEnv: agentConfig.env,
+        });
+        break;
+      case "copilot":
+        adapter = new CopilotAdapter({
+          command: agentConfig.command,
+          defaultArgs: agentConfig.args,
+          defaultEnv: agentConfig.env,
+        });
+        break;
+      case "cursor":
+        adapter = new CursorAdapter({
+          command: agentConfig.command,
+          defaultArgs: agentConfig.args,
+          defaultEnv: agentConfig.env,
+        });
+        break;
+      case "goose":
+        adapter = new GooseAdapter({
+          command: agentConfig.command,
+          defaultArgs: agentConfig.args,
+          defaultEnv: agentConfig.env,
+        });
         break;
       default:
         adapter = new CustomAdapter({

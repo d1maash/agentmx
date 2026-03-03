@@ -1,6 +1,6 @@
 # AgentMX
 
-Run multiple AI coding agents side-by-side in a single terminal. Switch between Claude Code, Codex CLI, Aider, or any custom agent with tabs, route tasks automatically, chain agents into pipelines, or run them in parallel — all from one unified TUI.
+Run multiple AI coding agents side-by-side in a single terminal. Switch between Claude Code, Codex CLI, Aider, Gemini CLI, GitHub Copilot CLI, Cursor Agent, Goose, or any custom agent with tabs, route tasks automatically, chain agents into pipelines, or run them in parallel — all from one unified TUI.
 
 ![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -8,7 +8,7 @@ Run multiple AI coding agents side-by-side in a single terminal. Switch between 
 
 ## Why AgentMX?
 
-Every AI coding agent has strengths. Claude Code is great at refactoring, Codex is fast at test generation, Aider knows your git history. But switching between terminals, copy-pasting context, and managing multiple sessions is painful.
+Every AI coding agent has strengths. Claude Code is great at refactoring, Codex is fast at test generation, Aider knows your git history, Gemini and Copilot are rapidly evolving, Goose is flexible and open source. But switching between terminals, copy-pasting context, and managing multiple sessions is painful.
 
 AgentMX solves this. One terminal. All your agents. Zero context-switching.
 
@@ -45,6 +45,9 @@ pip install aider-chat
 ## Quick Start
 
 ```bash
+# Interactive setup — detect agents, create .agentmx.yml
+amx init
+
 # Launch interactive TUI
 agentmx
 
@@ -102,6 +105,23 @@ agents:
     args: ["--model", "sonnet"]
     enabled: false
 
+  gemini:
+    command: gemini
+    enabled: false
+
+  copilot:
+    command: copilot
+    enabled: false
+
+  # Experimental: requires cursor-agent CLI
+  cursor:
+    command: cursor-agent
+    enabled: false
+
+  goose:
+    command: goose
+    enabled: false
+
   # Add any CLI tool as a custom agent
   my-tool:
     command: my-tool
@@ -131,6 +151,32 @@ ui:
 AgentMX uses [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig), so you can also use `.agentmxrc`, `.agentmxrc.json`, `.agentmxrc.yaml`, or an `agentmx` key in `package.json`.
 
 ## Commands
+
+### `agentmx init`
+
+Interactive setup wizard. Scans your system for installed agents (`claude`, `codex`, `aider`), lets you choose which to enable, and generates a `.agentmx.yml` config file.
+
+```bash
+amx init
+```
+
+```
+  AgentMX Setup
+  Configure your AI agents
+
+  Scanning for installed agents...
+
+  Found 2 agent(s): Claude Code, Codex
+  Not found: Aider
+
+  Select agents to enable:
+
+  Claude Code (claude) — installed. Enable? [Y/n]
+  Codex CLI (codex) — installed. Enable? [Y/n]
+  Aider (aider) — not found. Enable? [y/N]
+
+  Created .agentmx.yml successfully!
+```
 
 ### `agentmx` / `agentmx interactive`
 
@@ -209,6 +255,10 @@ When you run `agentmx run "task"` without specifying an agent, the router picks 
 | `claude-code` | Claude Code | Structured stream-json output with thinking, tool calls, cost tracking |
 | `codex` | Codex CLI | JSONL streaming with reasoning, command execution, approval flow |
 | `aider` | Aider | PTY-based with git integration |
+| `gemini` | Gemini CLI | PTY-based adapter (`gemini -p <task>` for task mode) |
+| `copilot` | GitHub Copilot CLI | PTY-based adapter (`copilot -p <task>` for task mode) |
+| `cursor` | Cursor Agent | PTY-based adapter (`cursor-agent -p <task>` for task mode) |
+| `goose` | Goose | PTY-based adapter (`goose run --text <task>` for task mode) |
 | Custom | Any name | Wrap any CLI command |
 
 ## Short Alias
@@ -223,7 +273,7 @@ amx pipe "codex: test" "claude-code: refactor"
 ## Requirements
 
 - Node.js >= 20
-- At least one AI coding agent installed (Claude Code, Codex, Aider, or custom)
+- At least one AI coding agent installed (Claude Code, Codex, Aider, Gemini CLI, Copilot CLI, Cursor Agent CLI, Goose, or custom)
 
 ## Documentation
 

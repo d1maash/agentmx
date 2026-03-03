@@ -15,6 +15,36 @@ export const DEFAULT_CONFIG: Config = {
       env: {},
       enabled: true,
     },
+    aider: {
+      command: "aider",
+      args: [],
+      env: {},
+      enabled: false,
+    },
+    gemini: {
+      command: "gemini",
+      args: [],
+      env: {},
+      enabled: false,
+    },
+    copilot: {
+      command: "copilot",
+      args: [],
+      env: {},
+      enabled: false,
+    },
+    cursor: {
+      command: "cursor-agent",
+      args: [],
+      env: {},
+      enabled: false,
+    },
+    goose: {
+      command: "goose",
+      args: [],
+      env: {},
+      enabled: false,
+    },
   },
   router: {
     mode: "manual",
