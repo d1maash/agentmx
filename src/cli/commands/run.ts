@@ -15,7 +15,7 @@ export async function runCommand(
   options: RunOptions,
   config: Config
 ): Promise<void> {
-  const pm = new ProcessManager();
+  const pm = new ProcessManager(process.cwd());
 
   const cleanup = async () => {
     await pm.stopAll();

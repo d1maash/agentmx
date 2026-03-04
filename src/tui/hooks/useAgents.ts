@@ -73,7 +73,7 @@ export function useAgents(processManager: ProcessManager, config: Config) {
   const clearError = useCallback(() => setError(null), []);
 
   const startAgent = useCallback(
-    async (agentName: string, task: string) => {
+    async (agentName: string, task: string, args?: string[]) => {
       const adapter = adapters.get(agentName);
       if (!adapter) {
         setError(`Agent "${agentName}" is not configured. Check .agentmx.yml`);
@@ -83,7 +83,8 @@ export function useAgents(processManager: ProcessManager, config: Config) {
       try {
         // Let adapter decide args based on task
         // Don't override args for interactive mode
-        const sessionId = await processManager.start(adapter, task);
+        const opts = args ? { args } : undefined;
+        const sessionId = await processManager.start(adapter, task, opts);
 
         setError(null);
         refreshSessions();

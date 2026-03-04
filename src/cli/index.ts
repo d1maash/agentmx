@@ -7,6 +7,8 @@ import { runCommand } from "./commands/run.js";
 import { pipeCommand } from "./commands/pipe.js";
 import { benchCommand } from "./commands/bench.js";
 import { initCommand } from "./commands/init.js";
+import { resumeCommand } from "./commands/resume.js";
+import { sessionsCommand } from "./commands/sessions.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json");
@@ -63,6 +65,25 @@ program
   .action(async (task: string, opts: { agents?: string }) => {
     const config = await loadConfig();
     await benchCommand(task, opts, config);
+  });
+
+// Resume a saved session
+program
+  .command("resume [session-id]")
+  .description("Resume a previously saved session")
+  .action(async (sessionId?: string) => {
+    const config = await loadConfig();
+    await resumeCommand(sessionId, config);
+  });
+
+// List saved sessions
+program
+  .command("sessions")
+  .description("List saved sessions")
+  .option("--clear", "Delete all saved sessions")
+  .option("--delete <id>", "Delete a specific session")
+  .action(async (opts: { clear?: boolean; delete?: string }) => {
+    await sessionsCommand(opts);
   });
 
 // Config info

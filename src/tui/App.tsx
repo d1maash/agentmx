@@ -21,6 +21,10 @@ interface AppProps {
   onStartFresh?: (agentName: string) => void;
   /** Quit the app */
   onQuit?: () => void;
+  /** Context from a previous session to display before new output */
+  resumeContext?: string;
+  /** Extra args to pass to the agent spawn (e.g. --resume for Claude Code) */
+  resumeArgs?: string[];
 }
 
 export function App({
@@ -32,6 +36,8 @@ export function App({
   splitView = false,
   onStartFresh,
   onQuit,
+  resumeContext,
+  resumeArgs,
 }: AppProps) {
   const { exit } = useApp();
   const {
@@ -135,7 +141,7 @@ export function App({
       }
     } else if (initialTask) {
       const agent = initialAgent ?? config.default_agent;
-      startAgent(agent, initialTask).catch(() => {});
+      startAgent(agent, initialTask, resumeArgs).catch(() => {});
     }
   }, [
     initialized,
@@ -144,6 +150,7 @@ export function App({
     parallelAgents,
     config,
     startAgent,
+    resumeArgs,
   ]);
 
   const activeSession = sessions[activeIndex];
