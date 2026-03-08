@@ -18,6 +18,7 @@ interface UseKeyboardOptions {
   onBookmarkList?: () => void;
   onSnippets?: () => void;
   onDiffView?: () => void;
+  onDashboard?: () => void;
 }
 
 export function useKeyboard({
@@ -37,6 +38,7 @@ export function useKeyboard({
   onBookmarkList,
   onSnippets,
   onDiffView,
+  onDashboard,
 }: UseKeyboardOptions) {
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -147,6 +149,12 @@ export function useKeyboard({
     // Diff view (Ctrl+D)
     if (input === "d" && key.ctrl) {
       onDiffView?.();
+      return;
+    }
+
+    // Dashboard (Ctrl+A)
+    if (input === "a" && key.ctrl) {
+      onDashboard?.();
       return;
     }
 
