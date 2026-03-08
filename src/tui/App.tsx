@@ -9,6 +9,7 @@ import { SearchOverlay } from "./components/SearchOverlay.js";
 import { BookmarkList } from "./components/BookmarkList.js";
 import { SnippetPicker } from "./components/SnippetPicker.js";
 import { DiffView } from "./components/DiffView.js";
+import { DashboardView } from "./components/DashboardView.js";
 import { useAgents } from "./hooks/useAgents.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import { addBookmark, getBookmarks } from "./utils/bookmarks.js";
@@ -57,7 +58,7 @@ export function App({
     clearError,
   } = useAgents(processManager, config);
 
-  type OverlayMode = "none" | "newAgent" | "search" | "bookmarks" | "snippets" | "diff";
+  type OverlayMode = "none" | "newAgent" | "search" | "bookmarks" | "snippets" | "diff" | "dashboard";
 
   const [overlayMode, setOverlayMode] = useState<OverlayMode>("none");
   const [initialized, setInitialized] = useState(false);
@@ -174,6 +175,7 @@ export function App({
     onDiffView: () => {
       if (sessions.length >= 2) setOverlayMode("diff");
     },
+    onDashboard: () => setOverlayMode("dashboard"),
   });
 
   // Initialize with task if provided (for `agentmx run`)
@@ -309,6 +311,15 @@ export function App({
     return (
       <DiffView
         sessions={sessions}
+        onClose={() => setOverlayMode("none")}
+      />
+    );
+  }
+
+  // Dashboard view
+  if (overlayMode === "dashboard") {
+    return (
+      <DashboardView
         onClose={() => setOverlayMode("none")}
       />
     );

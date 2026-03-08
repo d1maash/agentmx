@@ -1,6 +1,7 @@
 import type { AgentAdapter, AgentProcess, AgentStatus, SpawnOptions } from "../adapters/types.js";
 import { type Session, createSessionId, getSessionSummary } from "./session.js";
 import { saveSession } from "./session-store.js";
+import { checkBudgets } from "./cost-tracker.js";
 import { EventEmitter } from "node:events";
 
 export class ProcessManager extends EventEmitter {
@@ -18,6 +19,16 @@ export class ProcessManager extends EventEmitter {
     task: string,
     opts?: SpawnOptions
   ): Promise<string> {
+    // Check budget alerts before starting
+    const alerts = checkBudgets();
+    const agentAlerts = alerts.filter(
+      (a) => a.level === "exceeded" && (a.scope === adapter.info.name || a.scope === "global")
+    );
+    if (agentAlerts.length > 0) {
+      const alert = agentAlerts[0];
+      this.emit("budget:exceeded", alert);
+    }
+
     const id = createSessionId();
     const agentProcess = adapter.spawn(task, opts);
 
