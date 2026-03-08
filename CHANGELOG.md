@@ -10,12 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - New built-in adapters: `gemini`, `copilot`, `cursor`, `goose`
+- New CLI commands:
+  - `vote` for multi-agent consensus with a judge agent
+  - `review` for coder -> reviewer -> tester pipelines
+  - `share` for multi-agent live context sharing
+  - `stats` for analytics summaries from saved sessions
+  - `costs` for cost reports and budget configuration
+  - `quality` for lint, test, and complexity scoring
 - Task/interactive command mapping for new adapters:
   - `gemini -p <task>` / `gemini`
   - `copilot -p <task>` / `copilot`
   - `cursor-agent -p <task>` / `cursor-agent`
   - `goose run --text <task>` / `goose session`
 - Config defaults and `.agentmx.example.yml` entries for Gemini CLI, GitHub Copilot CLI, Cursor Agent, and Goose (disabled by default)
+- Saved-session analytics and cost aggregation based on persisted session history
+- Budget configuration and alerting stored in `~/.agentmx/budgets.json`
+- TUI analytics dashboard with overview, costs, and history tabs
+
+### Changed
+
+- TUI keyboard shortcuts and status bar now expose the dashboard on `Ctrl+A`
+- Session startup now performs budget checks before launching new agent work
+- Documentation refreshed to cover new orchestration modes, analytics, budgets, quality scoring, sessions, and benchmark suites
 
 ## [0.1.0] - 2026-03-01
 
