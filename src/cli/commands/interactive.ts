@@ -5,7 +5,7 @@ import { ProcessManager } from "../../core/process-manager.js";
 import type { Config } from "../../config/schema.js";
 
 export async function interactiveCommand(config: Config): Promise<void> {
-  const pm = new ProcessManager();
+  const pm = new ProcessManager(process.cwd());
 
   const cleanup = async () => {
     await pm.stopAll();

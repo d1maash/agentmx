@@ -1,9 +1,16 @@
 import type { AgentAdapter, AgentProcess, AgentStatus, SpawnOptions } from "../adapters/types.js";
 import { type Session, createSessionId, getSessionSummary } from "./session.js";
+import { saveSession } from "./session-store.js";
 import { EventEmitter } from "node:events";
 
 export class ProcessManager extends EventEmitter {
   private sessions: Map<string, Session> = new Map();
+  private cwd: string;
+
+  constructor(cwd?: string) {
+    super();
+    this.cwd = cwd ?? process.cwd();
+  }
 
   /** Start an agent and return session ID */
   async start(
@@ -25,8 +32,16 @@ export class ProcessManager extends EventEmitter {
     this.sessions.set(id, session);
     this.emit("session:start", session);
 
-    // Listen for process completion
+    // Listen for process completion — auto-save session
     agentProcess.done.then(({ exitCode }) => {
+      // Only save sessions with actual output
+      if (session.process.buffer.length > 0) {
+        try {
+          saveSession(session, exitCode, this.cwd);
+        } catch {
+          // Don't let save failures crash the app
+        }
+      }
       this.emit("session:end", session, exitCode);
     });
 
