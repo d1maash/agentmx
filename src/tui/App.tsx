@@ -1,12 +1,19 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { AgentTabs } from "./components/AgentTabs.js";
 import { AgentView, type ScrollInfo } from "./components/AgentView.js";
 import { SplitView } from "./components/SplitView.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { InputBar } from "./components/InputBar.js";
+import { SearchOverlay } from "./components/SearchOverlay.js";
+import { BookmarkList } from "./components/BookmarkList.js";
+import { SnippetPicker } from "./components/SnippetPicker.js";
+import { DiffView } from "./components/DiffView.js";
 import { useAgents } from "./hooks/useAgents.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
+import { addBookmark, getBookmarks } from "./utils/bookmarks.js";
+import { sendNotification } from "./utils/notifications.js";
+import { sanitizeTerminalText } from "./utils/terminal.js";
 import type { ProcessManager } from "../core/process-manager.js";
 import type { Config } from "../config/schema.js";
 
@@ -50,7 +57,9 @@ export function App({
     clearError,
   } = useAgents(processManager, config);
 
-  const [showNewAgent, setShowNewAgent] = useState(false);
+  type OverlayMode = "none" | "newAgent" | "search" | "bookmarks" | "snippets" | "diff";
+
+  const [overlayMode, setOverlayMode] = useState<OverlayMode>("none");
   const [initialized, setInitialized] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const [scrollOffsets, setScrollOffsets] = useState<Record<string, number>>({});
@@ -59,10 +68,33 @@ export function App({
     maxOffset: 0,
     effectiveOffset: 0,
   });
+  const [bookmarkFlash, setBookmarkFlash] = useState(false);
+
+  // Track completed sessions for notifications
+  const [notifiedSessions] = useState(() => new Set<string>());
+  const showNewAgent = overlayMode === "newAgent";
+  const hasOverlay = overlayMode !== "none";
+
+  // Notifications: when an agent finishes, send macOS notification
+  useEffect(() => {
+    for (const session of sessions) {
+      if (
+        (session.status === "done" || session.status === "error") &&
+        !notifiedSessions.has(session.id)
+      ) {
+        notifiedSessions.add(session.id);
+        const statusText = session.status === "done" ? "completed" : "failed";
+        sendNotification(
+          `AgentMX — ${session.displayName}`,
+          `Task ${statusText}: ${session.task.slice(0, 100)}`
+        );
+      }
+    }
+  }, [sessions, notifiedSessions]);
 
   const { activeIndex } = useKeyboard({
     sessionsCount: sessions.length,
-    enabled: !showNewAgent && !inputFocused,
+    enabled: !hasOverlay && !inputFocused,
     onQuit: async () => {
       if (onQuit) {
         onQuit();
@@ -71,7 +103,7 @@ export function App({
         exit();
       }
     },
-    onNewAgent: () => setShowNewAgent(true),
+    onNewAgent: () => setOverlayMode("newAgent"),
     onKillAgent: async () => {
       const session = sessions[activeIndex];
       if (session) {
@@ -127,6 +159,20 @@ export function App({
         if (current === 0) return prev;
         return { ...prev, [session.id]: 0 };
       });
+    },
+    onSearch: () => setOverlayMode("search"),
+    onBookmark: () => {
+      const session = sessions[activeIndex];
+      if (!session) return;
+      const offset = scrollOffsets[session.id] ?? 0;
+      addBookmark(session.id, offset);
+      setBookmarkFlash(true);
+      setTimeout(() => setBookmarkFlash(false), 1000);
+    },
+    onBookmarkList: () => setOverlayMode("bookmarks"),
+    onSnippets: () => setOverlayMode("snippets"),
+    onDiffView: () => {
+      if (sessions.length >= 2) setOverlayMode("diff");
     },
   });
 
@@ -186,7 +232,7 @@ export function App({
 
   // Enter/Esc toggles input mode in the built-in text input.
   useInput((_input, key) => {
-    if (showNewAgent || sessions.length === 0) return;
+    if (hasOverlay || sessions.length === 0) return;
 
     if (key.escape && inputFocused) {
       setInputFocused(false);
@@ -196,13 +242,13 @@ export function App({
     if (key.return && !inputFocused) {
       setInputFocused(true);
     }
-  }, { isActive: !showNewAgent });
+  }, { isActive: !hasOverlay });
 
   // Select agent from menu.
   const handleNewAgent = useCallback(
     (agentName: string) => {
       const agent = agentName.trim();
-      setShowNewAgent(false);
+      setOverlayMode("none");
       if (!adapters.has(agent)) return;
 
       if (onStartFresh) {
@@ -214,13 +260,33 @@ export function App({
     [adapters, onStartFresh, startAgent]
   );
 
+  /** Get all searchable lines for the current session */
+  const getSearchLines = useCallback((): string[] => {
+    if (!activeSession) return [];
+    const raw = activeSession.buffer.map((b) => {
+      if (b.activity) {
+        switch (b.activity.kind) {
+          case "text": return b.activity.text;
+          case "thinking": return b.activity.text;
+          case "tool_call": return `[${b.activity.toolName}] ${JSON.stringify(b.activity.input)}`;
+          case "tool_result": return b.activity.content;
+          case "cost": return `Done · $${b.activity.totalCost.toFixed(4)}`;
+          case "init": return `Session started · ${b.activity.model}`;
+          default: return b.data;
+        }
+      }
+      return b.data;
+    }).join("");
+    return sanitizeTerminalText(raw).split("\n").filter((l) => l.trim().length > 0);
+  }, [activeSession?.id, activeSession?.buffer.length]);
+
   // Dismiss error
   useInput(() => {
     if (error) clearError();
   });
 
   // New agent prompt
-  if (showNewAgent) {
+  if (overlayMode === "newAgent") {
     const availableAgents = Array.from(adapters.keys());
 
     return (
@@ -231,10 +297,20 @@ export function App({
           <NewAgentPrompt
             agents={availableAgents}
             onSelect={handleNewAgent}
-            onCancel={() => setShowNewAgent(false)}
+            onCancel={() => setOverlayMode("none")}
           />
         </Box>
       </Box>
+    );
+  }
+
+  // Diff view
+  if (overlayMode === "diff") {
+    return (
+      <DiffView
+        sessions={sessions}
+        onClose={() => setOverlayMode("none")}
+      />
     );
   }
 
@@ -260,6 +336,9 @@ export function App({
     );
   }
 
+  // Bookmark count for active session
+  const bookmarkCount = activeSession ? getBookmarks(activeSession.id).length : 0;
+
   // Normal TUI view
   return (
     <Box flexDirection="column" height="100%" width="100%" overflow="hidden">
@@ -269,6 +348,11 @@ export function App({
           <Text color="red" bold>Error: </Text>
           <Text color="red">{error}</Text>
           <Text dimColor> (press any key to dismiss)</Text>
+        </Box>
+      )}
+      {bookmarkFlash && (
+        <Box paddingX={1}>
+          <Text color="blue" bold>Bookmark added</Text>
         </Box>
       )}
       <Box
@@ -285,6 +369,37 @@ export function App({
           onScrollInfo={handleScrollInfo}
         />
       </Box>
+      {/* Overlay panels */}
+      {overlayMode === "search" && (
+        <SearchOverlay
+          lines={getSearchLines()}
+          onClose={() => setOverlayMode("none")}
+          onJumpToOffset={(offset) => {
+            if (!activeSession) return;
+            setScrollOffsets((prev) => ({ ...prev, [activeSession.id]: offset }));
+          }}
+        />
+      )}
+      {overlayMode === "bookmarks" && activeSession && (
+        <BookmarkList
+          sessionId={activeSession.id}
+          onJump={(offset) => {
+            setScrollOffsets((prev) => ({ ...prev, [activeSession.id]: offset }));
+          }}
+          onClose={() => setOverlayMode("none")}
+        />
+      )}
+      {overlayMode === "snippets" && (
+        <SnippetPicker
+          onSelect={(prompt) => {
+            setOverlayMode("none");
+            if (activeSession) {
+              sendInput(activeSession.id, prompt + "\n");
+            }
+          }}
+          onClose={() => setOverlayMode("none")}
+        />
+      )}
       {activeSession && (
         <InputBar
           agentName={activeSession.displayName}
@@ -297,6 +412,7 @@ export function App({
         focused={inputFocused}
         scrollOffset={activeScrollOffset}
         maxScrollOffset={activeScrollInfo.maxOffset}
+        bookmarkCount={bookmarkCount}
       />
     </Box>
   );

@@ -7,6 +7,7 @@ interface StatusBarProps {
   focused: boolean;
   scrollOffset?: number;
   maxScrollOffset?: number;
+  bookmarkCount?: number;
 }
 
 function formatUptime(ms: number): string {
@@ -24,6 +25,7 @@ export function StatusBar({
   focused,
   scrollOffset = 0,
   maxScrollOffset = 0,
+  bookmarkCount = 0,
 }: StatusBarProps) {
   const columns = process.stdout.columns ?? 120;
   const compact = columns < 110;
@@ -31,10 +33,10 @@ export function StatusBar({
   const showScrollHint = columns >= 105;
   const controls =
     columns < 90
-      ? "1-9 Enter Esc ^N ^W ^Q"
+      ? "^F ^B ^G ^S ^D ^N ^W ^Q"
       : compact
-        ? "1-9 | Enter | Esc | Ctrl+N | Ctrl+W | Ctrl+Q | ↑↓ Pg Home End"
-        : "1-9 switch | Enter input | Esc close input | Ctrl+N new | Ctrl+W kill | Ctrl+Q quit | ↑↓ scroll | PgUp/PgDn | Home/End";
+        ? "^F search | ^B mark | ^G marks | ^S snip | ^D diff | ^N ^W ^Q"
+        : "^F search | ^B bookmark | ^G bookmarks | ^S snippets | ^D diff | ^N new | ^W kill | ^Q quit";
   const statusColor =
     session?.status === "running"
       ? "green"
@@ -72,6 +74,12 @@ export function StatusBar({
               <>
                 {" | "}
                 <Text dimColor>{scrollInfo}</Text>
+              </>
+            )}
+            {bookmarkCount > 0 && (
+              <>
+                {" | "}
+                <Text color="blue">BM:{bookmarkCount}</Text>
               </>
             )}
           </>

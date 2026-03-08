@@ -13,6 +13,11 @@ interface UseKeyboardOptions {
   onPageDown?: () => void;
   onScrollTop?: () => void;
   onScrollBottom?: () => void;
+  onSearch?: () => void;
+  onBookmark?: () => void;
+  onBookmarkList?: () => void;
+  onSnippets?: () => void;
+  onDiffView?: () => void;
 }
 
 export function useKeyboard({
@@ -27,6 +32,11 @@ export function useKeyboard({
   onPageDown,
   onScrollTop,
   onScrollBottom,
+  onSearch,
+  onBookmark,
+  onBookmarkList,
+  onSnippets,
+  onDiffView,
 }: UseKeyboardOptions) {
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -108,6 +118,36 @@ export function useKeyboard({
     // Kill current agent (Ctrl+W)
     if (input === "w" && key.ctrl) {
       onKillAgent();
+    }
+
+    // Search (Ctrl+F)
+    if (input === "f" && key.ctrl) {
+      onSearch?.();
+      return;
+    }
+
+    // Bookmark (Ctrl+B)
+    if (input === "b" && key.ctrl) {
+      onBookmark?.();
+      return;
+    }
+
+    // Bookmark list (Ctrl+G)
+    if (input === "g" && key.ctrl) {
+      onBookmarkList?.();
+      return;
+    }
+
+    // Snippets (Ctrl+S)
+    if (input === "s" && key.ctrl) {
+      onSnippets?.();
+      return;
+    }
+
+    // Diff view (Ctrl+D)
+    if (input === "d" && key.ctrl) {
+      onDiffView?.();
+      return;
     }
 
     // Quit (Ctrl+Q or Ctrl+C)
