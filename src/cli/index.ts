@@ -6,6 +6,7 @@ import { interactiveCommand } from "./commands/interactive.js";
 import { runCommand } from "./commands/run.js";
 import { pipeCommand } from "./commands/pipe.js";
 import { benchCommand } from "./commands/bench.js";
+import { benchSuiteCommand } from "./commands/bench-suite.js";
 import { initCommand } from "./commands/init.js";
 import { resumeCommand } from "./commands/resume.js";
 import { sessionsCommand } from "./commands/sessions.js";
@@ -55,17 +56,44 @@ program
   });
 
 // Benchmark mode
-program
-  .command("bench <task>")
+const benchCmd = program
+  .command("bench [task]")
   .description("Benchmark a task across agents and compare results")
   .option(
     "-a, --agents <list>",
     "Agents to benchmark (comma-separated, default: all enabled)"
   )
-  .action(async (task: string, opts: { agents?: string }) => {
+  .action(async (task: string | undefined, opts: { agents?: string }) => {
+    if (!task) {
+      console.error("Usage: amx bench <task> or amx bench suite [options]");
+      process.exitCode = 1;
+      return;
+    }
     const config = await loadConfig();
     await benchCommand(task, opts, config);
   });
+
+// Benchmark suite subcommand
+benchCmd
+  .command("suite")
+  .description("Run curated benchmark suites with automated verification")
+  .option("-s, --suite <id>", "Run a specific suite (e.g. algorithms, practical)")
+  .option("-a, --agents <list>", "Agents to benchmark (comma-separated)")
+  .option("-o, --output <path>", "Output path for markdown report")
+  .option("--list", "List available suites")
+  .option("--keep-workspaces", "Keep temp directories after run")
+  .action(
+    async (opts: {
+      suite?: string;
+      agents?: string;
+      output?: string;
+      list?: boolean;
+      keepWorkspaces?: boolean;
+    }) => {
+      const config = await loadConfig();
+      await benchSuiteCommand(opts, config);
+    }
+  );
 
 // Resume a saved session
 program
