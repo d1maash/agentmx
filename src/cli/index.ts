@@ -10,6 +10,12 @@ import { benchSuiteCommand } from "./commands/bench-suite.js";
 import { initCommand } from "./commands/init.js";
 import { resumeCommand } from "./commands/resume.js";
 import { sessionsCommand } from "./commands/sessions.js";
+import { voteCommand } from "./commands/vote.js";
+import { reviewCommand } from "./commands/review.js";
+import { shareCommand } from "./commands/share.js";
+import { statsCommand } from "./commands/stats.js";
+import { costsCommand } from "./commands/costs.js";
+import { qualityCommand } from "./commands/quality.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json");
@@ -114,6 +120,65 @@ program
     await sessionsCommand(opts);
   });
 
+// Vote / consensus mode
+program
+  .command("vote <task>")
+  .description(
+    "Run a task on multiple agents and let a judge pick the best (or merge results)"
+  )
+  .option(
+    "-a, --agents <list>",
+    "Agents to vote (comma-separated, default: all enabled)"
+  )
+  .option("-j, --judge <agent>", "Judge agent (default: first agent)")
+  .option(
+    "-s, --strategy <strategy>",
+    'Voting strategy: "best" or "merge" (default: best)'
+  )
+  .action(
+    async (
+      task: string,
+      opts: { agents?: string; judge?: string; strategy?: string }
+    ) => {
+      const config = await loadConfig();
+      await voteCommand(task, opts, config);
+    }
+  );
+
+// Review pipeline
+program
+  .command("review <task>")
+  .description(
+    "Run a code review pipeline: coder → reviewer → tester"
+  )
+  .option("--coder <agent>", "Agent that writes code")
+  .option("--reviewer <agent>", "Agent that reviews code")
+  .option("--tester <agent>", "Agent that writes tests")
+  .action(
+    async (
+      task: string,
+      opts: { coder?: string; reviewer?: string; tester?: string }
+    ) => {
+      const config = await loadConfig();
+      await reviewCommand(task, opts, config);
+    }
+  );
+
+// Shared context mode
+program
+  .command("share <task>")
+  .description(
+    "Run a task on multiple agents with real-time context sharing between them"
+  )
+  .option(
+    "-a, --agents <list>",
+    "Agents to run (comma-separated, default: all enabled)"
+  )
+  .action(async (task: string, opts: { agents?: string }) => {
+    const config = await loadConfig();
+    await shareCommand(task, opts, config);
+  });
+
 // Config info
 program
   .command("config")
@@ -121,6 +186,51 @@ program
   .action(async () => {
     const config = await loadConfig();
     console.log(JSON.stringify(config, null, 2));
+  });
+
+// Analytics dashboard
+program
+  .command("stats")
+  .description("Show analytics dashboard with agent statistics")
+  .option("-d, --days <n>", "Limit to last N days")
+  .option("--no-daily", "Hide daily breakdown")
+  .option("--no-weekly", "Hide weekly breakdown")
+  .action(async (opts: { days?: string; daily?: boolean; weekly?: boolean }) => {
+    await statsCommand(opts);
+  });
+
+// Cost tracking
+program
+  .command("costs")
+  .description("Track costs per agent with budget limits")
+  .option("--set-budget <agent>", "Set budget for an agent")
+  .option("--set-global-budget", "Set global budget limits")
+  .option("--daily <amount>", "Daily limit in USD")
+  .option("--weekly <amount>", "Weekly limit in USD")
+  .option("--monthly <amount>", "Monthly limit in USD")
+  .option("--total <amount>", "Total cumulative limit in USD")
+  .option("--budgets", "Show current budget configuration")
+  .action(
+    async (opts: {
+      setBudget?: string;
+      setGlobalBudget?: boolean;
+      daily?: string;
+      weekly?: string;
+      monthly?: string;
+      total?: string;
+      budgets?: boolean;
+    }) => {
+      await costsCommand({ ...opts, showBudgets: opts.budgets });
+    }
+  );
+
+// Quality scoring
+program
+  .command("quality")
+  .description("Run quality checks: linting, tests, and complexity analysis")
+  .option("-p, --path <dir>", "Directory to analyze (default: cwd)")
+  .action(async (opts: { path?: string }) => {
+    await qualityCommand(opts);
   });
 
 // Init — interactive setup
