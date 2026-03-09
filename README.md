@@ -1,91 +1,228 @@
+<div align="center">
+
 # AgentMX
 
-Run multiple AI coding agents side-by-side in a single terminal.
+**One terminal. Every AI coding agent.**
 
-![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![npm](https://img.shields.io/npm/v/agentmx)
+Run Claude Code, Codex, Aider, Gemini, Copilot, Cursor, Goose — and any custom CLI — side-by-side in a single TUI.
 
-AgentMX (`amx`) is a CLI multiplexer for AI coding agents — Claude Code, Codex CLI, Aider, Gemini CLI, GitHub Copilot CLI, Cursor Agent, Goose, or any custom CLI. One TUI, one config, one workflow.
+[![npm version](https://img.shields.io/npm/v/agentmx?color=cb3837&label=npm)](https://www.npmjs.com/package/agentmx)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-43853d)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
-## Why?
+[Getting Started](docs/getting-started.md) · [Commands](docs/commands.md) · [Examples](docs/examples.md) · [Contributing](CONTRIBUTING.md)
 
-Different agents excel at different tasks. Claude Code handles large refactors well, Codex is fast on focused code, Aider is tightly coupled to git. Instead of juggling terminals, AgentMX keeps them all in one place — route, compare, chain, review, and resume without switching contexts.
+</div>
 
-## Features
+---
 
-| Feature | Description |
-|---------|-------------|
-| **Tabbed TUI** | Live streaming, input, scrolling, search, bookmarks, snippets, diff view |
-| **Task routing** | Auto-pick agents via regex rules or manual selection |
-| **Parallel execution** | Side-by-side comparison in split view |
-| **Pipelines** | Sequential handoff between agents |
-| **Voting / consensus** | Multiple agents answer, a judge picks the best or merges |
-| **Review pipeline** | Coder → reviewer → tester workflow |
-| **Shared context** | Agents see each other's live output |
-| **Sessions** | Save, list, resume previous work |
-| **Analytics & costs** | Usage stats, per-agent costs, budget alerts |
-| **Quality scoring** | Lint, test, and complexity checks |
-| **Benchmarks** | Suites with generated Markdown reports |
+## Why AgentMX?
+
+Different agents are good at different things — Claude Code nails large refactors, Codex is fast on focused tasks, Aider is tightly coupled to git. But switching between terminals, configs, and sessions is painful.
+
+AgentMX solves this with **one surface** to route, compare, chain, review, and resume work across all your agents.
+
+## Install
+
+```bash
+npm install -g agentmx
+```
+
+Then install at least one agent:
+
+```bash
+npm install -g @anthropic-ai/claude-code   # Claude Code
+npm install -g @openai/codex               # Codex CLI
+pip install aider-chat                      # Aider
+```
+
+> **Requirements:** Node.js >= 20
 
 ## Quick Start
 
 ```bash
-# Install
-npm install -g agentmx
-
-# Setup — detects installed agents and creates .agentmx.yml
-amx init
-
-# Launch interactive TUI
-amx
-
-# Run a task with auto-routing
-amx run "fix the login race condition"
-
-# Compare agents side-by-side
-amx run "write unit tests for auth.ts" -p claude-code,codex
-
-# Consensus with a judge
-amx vote "design a migration plan" --agents claude-code,codex --judge claude-code
-
-# Code review pipeline
-amx review "add pagination to the users endpoint"
-
-# Shared investigation
-amx share "investigate the flaky CI failure" --agents claude-code,codex
+amx init                 # detect agents, create .agentmx.yml
+amx                      # launch interactive TUI
+amx run "fix the bug"    # run with auto-routing
 ```
 
-**Requirements:** Node.js >= 20 and at least one [supported agent](docs/getting-started.md#supported-agents).
+## What Can It Do?
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Compare agents
+
+```bash
+amx run "write tests for auth.ts" \
+  -p claude-code,codex
+```
+
+Run agents in parallel, compare output in split view.
+
+</td>
+<td width="50%" valign="top">
+
+### Chain agents
+
+```bash
+amx pipe \
+  "codex: find security issues" \
+  "claude-code: fix them all"
+```
+
+Sequential handoff — output flows to the next step.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Vote & consensus
+
+```bash
+amx vote "design caching strategy" \
+  --agents claude-code,codex \
+  --judge claude-code
+```
+
+Multiple agents answer, a judge picks the best or merges.
+
+</td>
+<td width="50%" valign="top">
+
+### Code review
+
+```bash
+amx review "add pagination" \
+  --coder codex \
+  --reviewer claude-code \
+  --tester aider
+```
+
+Three-stage pipeline: code → review → test.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Shared context
+
+```bash
+amx share "debug timeout issue" \
+  --agents claude-code,codex
+```
+
+Agents see each other's output in real time.
+
+</td>
+<td width="50%" valign="top">
+
+### Analytics & budgets
+
+```bash
+amx stats --days 14
+amx costs
+amx quality
+```
+
+Track usage, set budget alerts, score repo quality.
+
+</td>
+</tr>
+</table>
+
+## Features at a Glance
+
+```
+ Tabbed TUI          Live streaming, scrolling, search, bookmarks, snippets, diff
+ Task Routing        Auto-pick agents via regex rules or manual selection
+ Parallel Runs       Side-by-side split view comparison
+ Pipelines           Sequential agent handoff with context passing
+ Voting              Multi-agent consensus with judge selection or merging
+ Review Pipeline     Coder → Reviewer → Tester workflow
+ Shared Context      Agents mirror live output to each other
+ Sessions            Save, list, delete, and resume previous work
+ Analytics           Usage stats, per-agent costs, budget alerts
+ Quality Scoring     Lint, test, and complexity analysis
+ Benchmarks          Curated suites with Markdown reports
+ Custom Agents       Wrap any CLI tool in one config block
+```
 
 ## Supported Agents
 
-| Agent | Command | Notes |
-|-------|---------|-------|
-| Claude Code | `claude` | Structured streaming, cost metadata, native resume |
-| Codex CLI | `codex` | JSONL streaming, approval-aware |
-| Aider | `aider` | PTY-based, git-oriented |
-| Gemini CLI | `gemini` | PTY adapter |
-| GitHub Copilot CLI | `copilot` | PTY adapter |
-| Cursor Agent | `cursor-agent` | PTY adapter |
-| Goose | `goose` | PTY adapter |
-| Custom | Any CLI | User-defined in config |
+| Agent | Command | Highlights |
+|:------|:--------|:-----------|
+| **Claude Code** | `claude` | Structured streaming, cost metadata, native resume |
+| **Codex CLI** | `codex` | JSONL streaming, approval-aware execution |
+| **Aider** | `aider` | PTY-based, git-oriented workflow |
+| **Gemini CLI** | `gemini` | PTY adapter, `-p` task mode |
+| **GitHub Copilot CLI** | `copilot` | PTY adapter, `-p` task mode |
+| **Cursor Agent** | `cursor-agent` | PTY adapter, `-p` task mode |
+| **Goose** | `goose` | PTY adapter, `run --text` task mode |
+| **Custom** | *any CLI* | User-defined command, args, env in config |
+
+## Keyboard Shortcuts
+
+| Key | Action | | Key | Action |
+|:----|:-------|---|:----|:-------|
+| `1-9` | Switch tab | | `Ctrl+A` | Analytics dashboard |
+| `←` `→` / `Tab` | Navigate tabs | | `Ctrl+F` | Search output |
+| `Enter` | Input mode | | `Ctrl+B` | Add bookmark |
+| `Esc` | Close / exit input | | `Ctrl+G` | Open bookmarks |
+| `↑` `↓` | Scroll | | `Ctrl+S` | Snippets |
+| `PgUp` `PgDn` | Page scroll | | `Ctrl+D` | Diff view |
+| `Home` `End` | Top / bottom | | `Ctrl+N` | New agent |
+| | | | `Ctrl+W` | Kill agent |
+| | | | `Ctrl+Q` | Quit |
+
+## Configuration
+
+Create `.agentmx.yml` in your project root (or run `amx init`):
+
+```yaml
+default_agent: claude-code
+
+agents:
+  claude-code:
+    command: claude
+    enabled: true
+  codex:
+    command: codex
+    args: ["--model", "o4-mini"]
+    enabled: true
+
+router:
+  mode: rules
+  rules:
+    - match: "test|spec"
+      agent: codex
+    - match: "refactor|docs"
+      agent: claude-code
+```
+
+See [Configuration docs](docs/configuration.md) for all options.
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Getting Started](docs/getting-started.md) | Installation, setup, and first steps |
-| [Commands](docs/commands.md) | Full CLI command reference |
-| [Configuration](docs/configuration.md) | Config file format, routing, custom agents |
-| [TUI Guide](docs/tui.md) | Keyboard shortcuts, dashboard, sessions |
-| [Orchestration](docs/orchestration.md) | Pipelines, voting, review, shared context |
-| [Analytics & Costs](docs/analytics.md) | Usage stats, budgets, quality scoring |
-| [Architecture](docs/architecture.md) | Project structure and internals |
-| [Examples](docs/examples.md) | Practical usage recipes |
-| [Contributing](CONTRIBUTING.md) | Development setup and guidelines |
-| [Changelog](CHANGELOG.md) | Version history |
+| | |
+|:--|:--|
+| **[Getting Started](docs/getting-started.md)** | Installation, setup, first steps |
+| **[Commands](docs/commands.md)** | Full CLI reference |
+| **[Configuration](docs/configuration.md)** | Config format, routing, custom agents |
+| **[TUI Guide](docs/tui.md)** | Shortcuts, dashboard, sessions |
+| **[Orchestration](docs/orchestration.md)** | Pipelines, voting, review, shared context |
+| **[Analytics & Costs](docs/analytics.md)** | Usage stats, budgets, quality scoring |
+| **[Architecture](docs/architecture.md)** | Project structure, internals |
+| **[Examples](docs/examples.md)** | Practical usage recipes |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
-MIT
+[MIT](LICENSE)
