@@ -78,7 +78,7 @@ pnpm run lint
 - **TypeScript strict mode** — no `any` types, handle all cases
 - **ESM only** — use `.js` extensions in imports
 - **Test your changes** — especially for adapter and core logic
-- **Update docs with behavior changes** — if you add or change commands, hotkeys, storage layout, or workflows, update `README.md`, `docs/guide.md`, and `CHANGELOG.md` in the same PR
+- **Update docs with behavior changes** — if you add or change commands, hotkeys, storage layout, or workflows, update `README.md`, the relevant files in `docs/`, and `CHANGELOG.md` in the same PR
 - **One PR per feature/fix** — keep pull requests focused
 
 ## Commit Messages
