@@ -10,11 +10,13 @@ import { BookmarkList } from "./components/BookmarkList.js";
 import { SnippetPicker } from "./components/SnippetPicker.js";
 import { DiffView } from "./components/DiffView.js";
 import { DashboardView } from "./components/DashboardView.js";
+import { OnboardingView } from "./components/OnboardingView.js";
 import { useAgents } from "./hooks/useAgents.js";
 import { useKeyboard } from "./hooks/useKeyboard.js";
 import { addBookmark, getBookmarks } from "./utils/bookmarks.js";
 import { sendNotification } from "./utils/notifications.js";
 import { sanitizeTerminalText } from "./utils/terminal.js";
+import { isOnboardingComplete, completeOnboarding } from "../core/onboarding.js";
 import type { ProcessManager } from "../core/process-manager.js";
 import type { Config } from "../config/schema.js";
 
@@ -60,6 +62,10 @@ export function App({
 
   type OverlayMode = "none" | "newAgent" | "search" | "bookmarks" | "snippets" | "diff" | "dashboard";
 
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    // Show onboarding only on first run with no initial task
+    return !initialTask && !isOnboardingComplete();
+  });
   const [overlayMode, setOverlayMode] = useState<OverlayMode>("none");
   const [initialized, setInitialized] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
@@ -93,9 +99,20 @@ export function App({
     }
   }, [sessions, notifiedSessions]);
 
+  const handleOnboardingComplete = useCallback(
+    (launchAgent?: string) => {
+      completeOnboarding("0.7.0");
+      setShowOnboarding(false);
+      if (launchAgent && adapters.has(launchAgent)) {
+        startAgent(launchAgent, "interactive").catch(() => {});
+      }
+    },
+    [adapters, startAgent]
+  );
+
   const { activeIndex } = useKeyboard({
     sessionsCount: sessions.length,
-    enabled: !hasOverlay && !inputFocused,
+    enabled: !hasOverlay && !inputFocused && !showOnboarding,
     onQuit: async () => {
       if (onQuit) {
         onQuit();
@@ -244,7 +261,7 @@ export function App({
     if (key.return && !inputFocused) {
       setInputFocused(true);
     }
-  }, { isActive: !hasOverlay });
+  }, { isActive: !hasOverlay && !showOnboarding });
 
   // Select agent from menu.
   const handleNewAgent = useCallback(
@@ -286,6 +303,17 @@ export function App({
   useInput(() => {
     if (error) clearError();
   });
+
+  // Onboarding wizard for first-time users
+  if (showOnboarding) {
+    const availableAgents = Array.from(adapters.keys());
+    return (
+      <OnboardingView
+        agents={availableAgents}
+        onComplete={handleOnboardingComplete}
+      />
+    );
+  }
 
   // New agent prompt
   if (overlayMode === "newAgent") {
