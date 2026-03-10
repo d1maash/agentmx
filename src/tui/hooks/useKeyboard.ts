@@ -19,6 +19,7 @@ interface UseKeyboardOptions {
   onSnippets?: () => void;
   onDiffView?: () => void;
   onDashboard?: () => void;
+  onFuzzySearch?: () => void;
 }
 
 export function useKeyboard({
@@ -39,6 +40,7 @@ export function useKeyboard({
   onSnippets,
   onDiffView,
   onDashboard,
+  onFuzzySearch,
 }: UseKeyboardOptions) {
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -155,6 +157,12 @@ export function useKeyboard({
     // Dashboard (Ctrl+A)
     if (input === "a" && key.ctrl) {
       onDashboard?.();
+      return;
+    }
+
+    // Fuzzy search across all tabs (Ctrl+P)
+    if (input === "p" && key.ctrl) {
+      onFuzzySearch?.();
       return;
     }
 

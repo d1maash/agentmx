@@ -6,6 +6,7 @@ import { SplitView } from "./components/SplitView.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { InputBar } from "./components/InputBar.js";
 import { SearchOverlay } from "./components/SearchOverlay.js";
+import { FuzzySearchOverlay } from "./components/FuzzySearchOverlay.js";
 import { BookmarkList } from "./components/BookmarkList.js";
 import { SnippetPicker } from "./components/SnippetPicker.js";
 import { DiffView } from "./components/DiffView.js";
@@ -60,7 +61,7 @@ export function App({
     clearError,
   } = useAgents(processManager, config);
 
-  type OverlayMode = "none" | "newAgent" | "search" | "bookmarks" | "snippets" | "diff" | "dashboard";
+  type OverlayMode = "none" | "newAgent" | "search" | "fuzzySearch" | "bookmarks" | "snippets" | "diff" | "dashboard";
 
   const [showOnboarding, setShowOnboarding] = useState(() => {
     // Show onboarding only on first run with no initial task
@@ -110,7 +111,7 @@ export function App({
     [adapters, startAgent]
   );
 
-  const { activeIndex } = useKeyboard({
+  const { activeIndex, setActive } = useKeyboard({
     sessionsCount: sessions.length,
     enabled: !hasOverlay && !inputFocused && !showOnboarding,
     onQuit: async () => {
@@ -193,6 +194,7 @@ export function App({
       if (sessions.length >= 2) setOverlayMode("diff");
     },
     onDashboard: () => setOverlayMode("dashboard"),
+    onFuzzySearch: () => setOverlayMode("fuzzySearch"),
   });
 
   // Initialize with task if provided (for `agentmx run`)
@@ -298,6 +300,31 @@ export function App({
     }).join("");
     return sanitizeTerminalText(raw).split("\n").filter((l) => l.trim().length > 0);
   }, [activeSession?.id, activeSession?.buffer.length]);
+
+  /** Get searchable lines for all sessions (for fuzzy search) */
+  const getAllSessionLines = useCallback(() => {
+    return sessions.map((session) => {
+      const raw = session.buffer.map((b) => {
+        if (b.activity) {
+          switch (b.activity.kind) {
+            case "text": return b.activity.text;
+            case "thinking": return b.activity.text;
+            case "tool_call": return `[${b.activity.toolName}] ${JSON.stringify(b.activity.input)}`;
+            case "tool_result": return b.activity.content;
+            case "cost": return `Done · $${b.activity.totalCost.toFixed(4)}`;
+            case "init": return `Session started · ${b.activity.model}`;
+            default: return b.data;
+          }
+        }
+        return b.data;
+      }).join("");
+      return {
+        id: session.id,
+        displayName: session.displayName,
+        lines: sanitizeTerminalText(raw).split("\n").filter((l) => l.trim().length > 0),
+      };
+    });
+  }, [sessions]);
 
   // Dismiss error
   useInput(() => {
@@ -416,6 +443,25 @@ export function App({
           onJumpToOffset={(offset) => {
             if (!activeSession) return;
             setScrollOffsets((prev) => ({ ...prev, [activeSession.id]: offset }));
+          }}
+        />
+      )}
+      {overlayMode === "fuzzySearch" && (
+        <FuzzySearchOverlay
+          sessions={getAllSessionLines()}
+          onClose={() => setOverlayMode("none")}
+          onSelect={(sessionId, lineIndex, totalLines) => {
+            setOverlayMode("none");
+            // Switch to the target tab
+            const tabIndex = sessions.findIndex((s) => s.id === sessionId);
+            if (tabIndex >= 0) {
+              // Use the keyboard hook's setActive to switch tabs
+              const { setActive } = keyboardRef;
+              setActive(tabIndex);
+              // Jump to the matched line
+              const offset = Math.max(0, totalLines - lineIndex - 1);
+              setScrollOffsets((prev) => ({ ...prev, [sessionId]: offset }));
+            }
           }}
         />
       )}
