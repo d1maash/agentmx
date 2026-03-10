@@ -455,8 +455,6 @@ export function App({
             // Switch to the target tab
             const tabIndex = sessions.findIndex((s) => s.id === sessionId);
             if (tabIndex >= 0) {
-              // Use the keyboard hook's setActive to switch tabs
-              const { setActive } = keyboardRef;
               setActive(tabIndex);
               // Jump to the matched line
               const offset = Math.max(0, totalLines - lineIndex - 1);

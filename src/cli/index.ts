@@ -16,6 +16,7 @@ import { shareCommand } from "./commands/share.js";
 import { statsCommand } from "./commands/stats.js";
 import { costsCommand } from "./commands/costs.js";
 import { qualityCommand } from "./commands/quality.js";
+import { dashboardCommand } from "./commands/dashboard.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json");
@@ -231,6 +232,16 @@ program
   .option("-p, --path <dir>", "Directory to analyze (default: cwd)")
   .action(async (opts: { path?: string }) => {
     await qualityCommand(opts);
+  });
+
+// Web dashboard
+program
+  .command("dashboard")
+  .description("Open web dashboard with analytics charts")
+  .option("-p, --port <port>", "Port to listen on", "3120")
+  .option("--no-open", "Don't auto-open browser")
+  .action(async (opts: { port?: string; open?: boolean }) => {
+    await dashboardCommand(opts);
   });
 
 // Init — interactive setup

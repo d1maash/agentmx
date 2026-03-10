@@ -33,10 +33,10 @@ export function StatusBar({
   const showScrollHint = columns >= 105;
   const controls =
     columns < 90
-      ? "^A ^F ^B ^G ^S ^D ^N ^W ^Q"
+      ? "^A ^F ^P ^B ^G ^S ^D ^N ^W ^Q"
       : compact
-        ? "^A stats | ^F search | ^B mark | ^G marks | ^S snip | ^D diff | ^N ^W ^Q"
-        : "^A dashboard | ^F search | ^B bookmark | ^G bookmarks | ^S snippets | ^D diff | ^N new | ^W kill | ^Q quit";
+        ? "^A stats | ^F search | ^P fuzzy | ^B mark | ^G marks | ^S snip | ^D diff | ^N ^W ^Q"
+        : "^A dashboard | ^F search | ^P fuzzy | ^B bookmark | ^G bookmarks | ^S snippets | ^D diff | ^N new | ^W kill | ^Q quit";
   const statusColor =
     session?.status === "running"
       ? "green"
