@@ -44,6 +44,33 @@ amx run "review this patch" --parallel claude-code,codex,aider
 
 When `--parallel` is used, AgentMX launches the TUI in split view with each agent running the same task.
 
+## watch
+
+```bash
+amx watch <task> [options]
+```
+
+Watch the current working tree and rerun the same AI task when files change. This is useful for iterative loops where you edit code, let the agent react, and repeat.
+
+| Option | Description |
+|--------|-------------|
+| `-a, --agent <name>` | Agent to use. Default is `auto` (router chooses). |
+| `-p, --parallel <agents>` | Comma-separated agents to rerun together. |
+| `-d, --debounce <ms>` | Wait time before restarting after file changes. Default is `500`. |
+
+```bash
+# Auto-route and keep watching
+amx watch "fix the flaky auth test"
+
+# Explicit agent
+amx watch "tighten the API validation" --agent codex
+
+# Restart multiple agents together
+amx watch "refine the onboarding copy" --parallel claude-code,codex
+```
+
+`amx watch` ignores common noisy folders such as `.git`, `node_modules`, `dist`, and `coverage`.
+
 ## bench
 
 ```bash
@@ -279,6 +306,39 @@ Weighted scoring: tests (4), linting (3), complexity (2).
 ```bash
 amx quality
 amx quality --path ../service-api
+```
+
+## dashboard
+
+```bash
+amx dashboard [options]
+```
+
+Launch a web-based analytics dashboard in the browser with interactive Chart.js charts.
+
+| Option | Description |
+|--------|-------------|
+| `-p, --port <port>` | Port to listen on. Default is `3120`. |
+| `--no-open` | Don't auto-open the browser. |
+
+The dashboard shows:
+
+- **Summary cards** — total sessions, success rate, total cost, total time, agents used
+- **Daily Activity chart** — stacked bar of successes/errors per day (last 30 days)
+- **Cost Trend chart** — line chart of daily cost over time
+- **Tasks by Agent** — doughnut chart of task distribution
+- **Success Rate by Agent** — horizontal bar, color-coded
+- **Cost by Agent** — doughnut chart of cost breakdown
+- **Agent Statistics table** — tasks, success/errors, rate, avg time, costs
+- **Cost Summary table** — today/week/month/total per agent
+- **Budget alerts** — warnings and exceeded limits at the top
+
+Data auto-refreshes every 30 seconds. Press `Ctrl+C` in the terminal to stop the server.
+
+```bash
+amx dashboard
+amx dashboard -p 8080
+amx dashboard --no-open
 ```
 
 ## config

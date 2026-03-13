@@ -7,6 +7,7 @@ AgentMX provides several ways to coordinate multiple agents beyond simple single
 | Mode | Command | Best For |
 |------|---------|----------|
 | Parallel comparison | `amx run --parallel` | Watching agents tackle the same task live |
+| Iterative watch | `amx watch` | Re-running the same task as you edit files |
 | Sequential handoff | `amx pipe` | Stage-based collaboration |
 | Consensus / judging | `amx vote` | Best-of-N or merged answers |
 | Code review | `amx review` | Implementation + review + tests |
@@ -23,6 +24,16 @@ amx run "write unit tests for auth.ts" --parallel claude-code,codex
 ```
 
 The TUI launches in split view with each agent working independently. Useful for quickly comparing approaches.
+
+## Watch Mode
+
+Re-run the same task whenever files in the current workspace change:
+
+```bash
+amx watch "fix the flaky CI test" --agent codex
+```
+
+This mode is closer to `nodemon`: AgentMX runs once immediately, keeps watching the repo, and restarts the task after a short debounce window when files change.
 
 ## Pipelines
 

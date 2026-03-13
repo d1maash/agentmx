@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `watch` command to rerun an AI task automatically when workspace files change
 - New built-in adapters: `gemini`, `copilot`, `cursor`, `goose`
 - New CLI commands:
   - `vote` for multi-agent consensus with a judge agent

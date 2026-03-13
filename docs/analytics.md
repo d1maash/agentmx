@@ -81,6 +81,35 @@ Press `Ctrl+A` in the TUI to open the analytics dashboard:
 
 Active budget warnings appear as a banner at the top.
 
+## Web Dashboard
+
+Launch an interactive web dashboard with Chart.js graphs:
+
+```bash
+amx dashboard
+amx dashboard -p 8080
+amx dashboard --no-open
+```
+
+| Option | Description |
+|--------|-------------|
+| `-p, --port <port>` | Port to listen on. Default `3120`. |
+| `--no-open` | Don't auto-open the browser. |
+
+### Charts & Tables
+
+| Chart | Type | Description |
+|-------|------|-------------|
+| Daily Activity | Stacked bar | Successes and errors per day (last 30 days) |
+| Cost Trend | Line | Daily cost over time |
+| Tasks by Agent | Doughnut | Task distribution across agents |
+| Success Rate by Agent | Horizontal bar | Color-coded by rate threshold |
+| Cost by Agent | Doughnut | Cost breakdown across agents |
+
+The dashboard also includes full agent statistics and cost summary tables, plus budget alert banners when limits approach or exceed thresholds.
+
+Data is served from session history at `~/.agentmx/sessions/` and auto-refreshes every 30 seconds. No extra dependencies required — uses Node's built-in HTTP server and Chart.js from CDN.
+
 ## Quality Scoring
 
 Run lint, test, and complexity checks:

@@ -119,6 +119,14 @@ amx run "update the API documentation"          # → claude-code
 amx run "optimize the build pipeline"           # → claude-code (default)
 ```
 
+### Watch a task while iterating
+
+```bash
+amx watch "fix the flaky worker retry logic" --agent codex
+```
+
+As you edit files locally, AgentMX restarts the same task automatically.
+
 ## Budget Management
 
 ### Set per-agent limits
