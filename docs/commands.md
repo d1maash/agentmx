@@ -308,6 +308,39 @@ amx quality
 amx quality --path ../service-api
 ```
 
+## dashboard
+
+```bash
+amx dashboard [options]
+```
+
+Launch a web-based analytics dashboard in the browser with interactive Chart.js charts.
+
+| Option | Description |
+|--------|-------------|
+| `-p, --port <port>` | Port to listen on. Default is `3120`. |
+| `--no-open` | Don't auto-open the browser. |
+
+The dashboard shows:
+
+- **Summary cards** — total sessions, success rate, total cost, total time, agents used
+- **Daily Activity chart** — stacked bar of successes/errors per day (last 30 days)
+- **Cost Trend chart** — line chart of daily cost over time
+- **Tasks by Agent** — doughnut chart of task distribution
+- **Success Rate by Agent** — horizontal bar, color-coded
+- **Cost by Agent** — doughnut chart of cost breakdown
+- **Agent Statistics table** — tasks, success/errors, rate, avg time, costs
+- **Cost Summary table** — today/week/month/total per agent
+- **Budget alerts** — warnings and exceeded limits at the top
+
+Data auto-refreshes every 30 seconds. Press `Ctrl+C` in the terminal to stop the server.
+
+```bash
+amx dashboard
+amx dashboard -p 8080
+amx dashboard --no-open
+```
+
 ## config
 
 ```bash

@@ -147,6 +147,17 @@ amx quality
 Track usage, set budget alerts, score repo quality.
 
 </td>
+<td width="50%" valign="top">
+
+### Web dashboard
+
+```bash
+amx dashboard
+```
+
+Open a browser-based analytics dashboard with interactive Chart.js charts — costs, success rates, daily trends, and more.
+
+</td>
 </tr>
 </table>
 
@@ -163,6 +174,7 @@ Track usage, set budget alerts, score repo quality.
  Watch Mode          Re-run the same task automatically on file changes
  Sessions            Save, list, delete, and resume previous work
  Analytics           Usage stats, per-agent costs, budget alerts
+ Web Dashboard      Browser-based charts and tables via Chart.js
  Quality Scoring     Lint, test, and complexity analysis
  Benchmarks          Curated suites with Markdown reports
  Custom Agents       Wrap any CLI tool in one config block
