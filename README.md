@@ -45,6 +45,7 @@ pip install aider-chat                      # Aider
 amx init                 # detect agents, create .agentmx.yml
 amx                      # launch interactive TUI
 amx run "fix the bug"    # run with auto-routing
+amx watch "fix the bug"  # rerun when files change
 ```
 
 ## What Can It Do?
@@ -121,6 +122,20 @@ Agents see each other's output in real time.
 </td>
 <td width="50%" valign="top">
 
+### Watch mode
+
+```bash
+amx watch "fix the flaky test" \
+  --agent codex
+```
+
+Re-run the same AI task whenever project files change.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
 ### Analytics & budgets
 
 ```bash
@@ -145,6 +160,7 @@ Track usage, set budget alerts, score repo quality.
  Voting              Multi-agent consensus with judge selection or merging
  Review Pipeline     Coder → Reviewer → Tester workflow
  Shared Context      Agents mirror live output to each other
+ Watch Mode          Re-run the same task automatically on file changes
  Sessions            Save, list, delete, and resume previous work
  Analytics           Usage stats, per-agent costs, budget alerts
  Quality Scoring     Lint, test, and complexity analysis

@@ -44,6 +44,33 @@ amx run "review this patch" --parallel claude-code,codex,aider
 
 When `--parallel` is used, AgentMX launches the TUI in split view with each agent running the same task.
 
+## watch
+
+```bash
+amx watch <task> [options]
+```
+
+Watch the current working tree and rerun the same AI task when files change. This is useful for iterative loops where you edit code, let the agent react, and repeat.
+
+| Option | Description |
+|--------|-------------|
+| `-a, --agent <name>` | Agent to use. Default is `auto` (router chooses). |
+| `-p, --parallel <agents>` | Comma-separated agents to rerun together. |
+| `-d, --debounce <ms>` | Wait time before restarting after file changes. Default is `500`. |
+
+```bash
+# Auto-route and keep watching
+amx watch "fix the flaky auth test"
+
+# Explicit agent
+amx watch "tighten the API validation" --agent codex
+
+# Restart multiple agents together
+amx watch "refine the onboarding copy" --parallel claude-code,codex
+```
+
+`amx watch` ignores common noisy folders such as `.git`, `node_modules`, `dist`, and `coverage`.
+
 ## bench
 
 ```bash

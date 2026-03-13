@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { loadConfig } from "../config/loader.js";
 import { interactiveCommand } from "./commands/interactive.js";
 import { runCommand } from "./commands/run.js";
+import { watchCommand } from "./commands/watch.js";
 import { pipeCommand } from "./commands/pipe.js";
 import { benchCommand } from "./commands/bench.js";
 import { benchSuiteCommand } from "./commands/bench-suite.js";
@@ -50,6 +51,29 @@ program
     const config = await loadConfig();
     await runCommand(task, opts, config);
   });
+
+program
+  .command("watch <task>")
+  .description("Run a task again whenever files change")
+  .option("-a, --agent <name>", "Agent to use", "auto")
+  .option(
+    "-p, --parallel <agents>",
+    "Run on multiple agents in parallel (comma-separated)"
+  )
+  .option(
+    "-d, --debounce <ms>",
+    "Debounce file change events before restarting",
+    String(500)
+  )
+  .action(
+    async (
+      task: string,
+      opts: { agent?: string; parallel?: string; debounce?: string }
+    ) => {
+      const config = await loadConfig();
+      await watchCommand(task, opts, config);
+    }
+  );
 
 // Pipeline mode
 program
