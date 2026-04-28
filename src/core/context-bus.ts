@@ -1,6 +1,12 @@
 import { EventEmitter } from "node:events";
 import type { AgentOutput } from "../adapters/types.js";
 import type { ProcessManager } from "./process-manager.js";
+import {
+  createSharedContextState,
+  formatSharedContextState,
+  updateSharedContextState,
+  type SharedContextState,
+} from "./context-state.js";
 
 export interface ContextMessage {
   /** Source session ID */
@@ -31,13 +37,18 @@ export class ContextBus extends EventEmitter {
   private unsubscribers = new Map<string, () => void>();
   private maxHistory: number;
   private paused = false;
+  private sharedState: SharedContextState;
 
   constructor(
     private processManager: ProcessManager,
-    options?: { maxHistory?: number }
+    options?: { cwd?: string; maxHistory?: number; task?: string }
   ) {
     super();
     this.maxHistory = options?.maxHistory ?? 1000;
+    this.sharedState = createSharedContextState({
+      cwd: options?.cwd,
+      task: options?.task,
+    });
   }
 
   /**
@@ -71,8 +82,17 @@ export class ContextBus extends EventEmitter {
         this.history = this.history.slice(-this.maxHistory);
       }
 
-      // Broadcast to all other connected sessions
-      this.broadcast(message);
+      const changed = updateSharedContextState(this.sharedState, {
+        sourceSessionId: sessionId,
+        sourceAgent: agentName,
+        text: data,
+        timestamp: message.timestamp,
+      });
+
+      // Broadcast the structured state to all other connected sessions.
+      if (changed) {
+        this.broadcast(message);
+      }
     });
 
     const subscription: ContextSubscription = {
@@ -85,6 +105,7 @@ export class ContextBus extends EventEmitter {
     this.unsubscribers.set(sessionId, unsubscribe);
 
     this.emit("connected", { sessionId, agentName });
+    proc.send(formatSharedContextState(this.sharedState));
     return subscription;
   }
 
@@ -115,27 +136,13 @@ export class ContextBus extends EventEmitter {
    * except the source.
    */
   private broadcast(message: ContextMessage): void {
-    for (const [sessionId, sub] of this.subscriptions) {
+    for (const sessionId of this.subscriptions.keys()) {
       if (sessionId === message.sourceSessionId) continue;
 
       const proc = this.processManager.get(sessionId);
       if (!proc) continue;
 
-      // Format as context and send to the agent
-      const contextPrefix = `[context from ${message.sourceAgent}] `;
-      const text = message.output.data;
-
-      // Only forward meaningful text (skip empty/whitespace)
-      if (text.trim().length === 0) return;
-
-      // Don't forward if it's too much data at once (> 2KB)
-      // to avoid flooding agents
-      if (text.length > 2048) {
-        const truncated = text.slice(0, 2048) + "\n... (truncated)";
-        proc.send(`${contextPrefix}${truncated}\n`);
-      } else {
-        proc.send(`${contextPrefix}${text}\n`);
-      }
+      proc.send(formatSharedContextState(this.sharedState));
     }
 
     this.emit("broadcast", message);
@@ -144,31 +151,11 @@ export class ContextBus extends EventEmitter {
   /**
    * Send a summary of accumulated context to a specific session.
    */
-  sendContextSummary(sessionId: string, fromAgent?: string): void {
+  sendContextSummary(sessionId: string): void {
     const proc = this.processManager.get(sessionId);
     if (!proc) return;
 
-    const relevantHistory = fromAgent
-      ? this.history.filter((m) => m.sourceAgent === fromAgent)
-      : this.history;
-
-    if (relevantHistory.length === 0) return;
-
-    // Build summary (last N messages, max 4KB)
-    const lines: string[] = [];
-    let totalSize = 0;
-    const maxSize = 4096;
-
-    for (let i = relevantHistory.length - 1; i >= 0; i--) {
-      const msg = relevantHistory[i];
-      const line = `[${msg.sourceAgent}] ${msg.output.data.trim()}`;
-      if (totalSize + line.length > maxSize) break;
-      lines.unshift(line);
-      totalSize += line.length;
-    }
-
-    const summary = `\n--- Shared Context Summary ---\n${lines.join("\n")}\n--- End Context ---\n`;
-    proc.send(summary);
+    proc.send(formatSharedContextState(this.sharedState));
   }
 
   /** Pause broadcasting (temporarily mute) */
@@ -199,6 +186,11 @@ export class ContextBus extends EventEmitter {
       return this.history.slice(-limit);
     }
     return [...this.history];
+  }
+
+  /** Get the current structured shared state */
+  getState(): SharedContextState {
+    return structuredClone(this.sharedState);
   }
 
   /** Clear the history */

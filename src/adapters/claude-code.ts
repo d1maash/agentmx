@@ -4,6 +4,7 @@ import type {
   AgentInfo,
   AgentOutput,
   AgentStatus,
+  AgentProgress,
   ClaudeActivity,
   SpawnOptions,
 } from "./types.js";
@@ -248,6 +249,10 @@ function createClaudeStreamJson(options: {
   const emitter = new EventEmitter();
   const buffer: AgentOutput[] = [];
   let currentStatus: AgentStatus = "running";
+  let currentProgress: AgentProgress | undefined = {
+    indeterminate: true,
+    label: "Working",
+  };
   let doneResolved = false;
   let resolveDone!: (value: { exitCode: number }) => void;
 
@@ -507,6 +512,7 @@ function createClaudeStreamJson(options: {
     }
 
     currentStatus = exitCode === 0 ? "done" : "error";
+    currentProgress = exitCode === 0 ? { percent: 100, label: "Complete" } : undefined;
     resolveExit(exitCode);
   });
 
@@ -550,6 +556,12 @@ function createClaudeStreamJson(options: {
   };
 
   return {
+    get pid() {
+      return ptyProcess.pid;
+    },
+    get progress() {
+      return currentProgress;
+    },
     send(_input: string) {
       // One-shot mode — no interactive input
     },
@@ -558,6 +570,7 @@ function createClaudeStreamJson(options: {
     set status(s: AgentStatus) { currentStatus = s; },
     buffer,
     async kill() {
+      currentProgress = undefined;
       try {
         const treeKill = (await import("tree-kill")).default;
         await new Promise<void>((resolve, reject) => {
@@ -602,6 +615,7 @@ function createClaudeTextBridge(options: {
   let stopped = false;
   let processing = false;
   let doneResolved = false;
+  let currentProgress: AgentProgress | undefined;
   let resolveDone!: (value: { exitCode: number }) => void;
 
   const done = new Promise<{ exitCode: number }>((resolve) => {
@@ -808,6 +822,7 @@ function createClaudeTextBridge(options: {
 
     processing = true;
     currentStatus = "running";
+    currentProgress = { indeterminate: true, label: "Working" };
 
     // Reset streaming state for new prompt
     activeBlocks.clear();
@@ -853,6 +868,7 @@ function createClaudeTextBridge(options: {
       debugLog(`BRIDGE EXIT: code=${exitCode} bufLen=${buffer.length}`);
       activePty = null;
       processing = false;
+      currentProgress = undefined;
 
       // Flush remaining buffer
       if (lineBuf.trim()) {
@@ -919,6 +935,12 @@ function createClaudeTextBridge(options: {
   };
 
   return {
+    get pid() {
+      return activePty?.pid;
+    },
+    get progress() {
+      return currentProgress;
+    },
     send(input: string) {
       if (stopped) return;
 
@@ -941,6 +963,7 @@ function createClaudeTextBridge(options: {
     async kill() {
       stopped = true;
       queue.length = 0;
+      currentProgress = undefined;
 
       if (activePty) {
         try {

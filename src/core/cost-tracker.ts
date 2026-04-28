@@ -54,6 +54,10 @@ export interface AgentCostSummary {
   totalCost: number;
   sessionCount: number;
   avgCostPerSession: number;
+  /** Sessions whose exit code was 0. */
+  successCount: number;
+  /** totalCost / successCount. Undefined when there are no successes. */
+  costPerSuccess: number | undefined;
 }
 
 function ensureDir(): void {
@@ -156,6 +160,7 @@ export function getAgentCosts(): AgentCostSummary[] {
     let weekCost = 0;
     let monthCost = 0;
     let totalCost = 0;
+    let successCount = 0;
 
     for (const s of agentSessions) {
       const cost = extractSessionCost(s);
@@ -163,6 +168,7 @@ export function getAgentCosts(): AgentCostSummary[] {
       if (s.endedAt >= monthStart) monthCost += cost;
       if (s.endedAt >= weekStart) weekCost += cost;
       if (s.endedAt >= dayStart) todayCost += cost;
+      if (s.status === "done") successCount += 1;
     }
 
     summaries.push({
@@ -173,6 +179,8 @@ export function getAgentCosts(): AgentCostSummary[] {
       totalCost,
       sessionCount: agentSessions.length,
       avgCostPerSession: agentSessions.length > 0 ? totalCost / agentSessions.length : 0,
+      successCount,
+      costPerSuccess: successCount > 0 ? totalCost / successCount : undefined,
     });
   }
 

@@ -26,7 +26,7 @@ src/
 | **SessionStore** | Persists sessions under `~/.agentmx/sessions` |
 | **Task Router** | Chooses an agent for `amx run` based on routing rules |
 | **Pipeline Engine** | Passes output between steps in `amx pipe` |
-| **ContextBus** | Mirrors live output between agents in `amx share` |
+| **ContextBus** | Maintains structured shared working state between agents in `amx share` |
 | **VotingSession** | Coordinates parallel candidates + judge in `amx vote` |
 | **ReviewPipeline** | Coordinates coder → reviewer → tester in `amx review` |
 | **Analytics** | Aggregates session history into summaries |

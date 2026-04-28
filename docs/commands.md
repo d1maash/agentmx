@@ -24,7 +24,7 @@ Use it for:
 amx run <task> [options]
 ```
 
-Run a single task using one agent or a parallel set of agents.
+Run a task using one agent, a parallel set of agents, or an auto-selected orchestration strategy.
 
 | Option | Description |
 |--------|-------------|
@@ -43,6 +43,20 @@ amx run "review this patch" --parallel claude-code,codex,aider
 ```
 
 When `--parallel` is used, AgentMX launches the TUI in split view with each agent running the same task.
+
+When `--agent auto` and `router.mode: auto` are used, AgentMX reads saved session history from `~/.agentmx/sessions` and scores enabled agents by:
+- success rate on similar task types such as tests, UI, build, auth/security, refactors, and docs
+- overall failure rate and build-failure history
+- average cost when agent cost metadata is available
+- available fallback agents
+
+Based on those stats, `amx run "fix auth bug"` can choose:
+- `single` — one historically strongest agent
+- `parallel` — top agents in split view when scores are close or the task is complex
+- `review-loop` — coder, reviewer, and tester roles for risky tasks
+- `cheap-first` — the cheaper reliable agent first, then the strongest fallback if it exits non-zero
+
+If there is not enough history yet, auto mode falls back to configured router rules and then `default_agent`.
 
 ## watch
 
@@ -191,13 +205,13 @@ amx review "add request tracing to the API" \
 amx share <task> [options]
 ```
 
-Run a task on multiple agents with real-time context sharing. Each agent sees the others' output as it comes in.
+Run a task on multiple agents with real-time context sharing. Each agent receives a structured shared state distilled from the others' output.
 
 | Option | Description |
 |--------|-------------|
 | `-a, --agents <list>` | Comma-separated agents. Defaults to all enabled. |
 
-Requires at least two agents. Long bursts are truncated before forwarding.
+Requires at least two agents. The shared state tracks repo map, found files, hypotheses, failing tests, decisions, rejected approaches, and final patch candidates.
 
 ```bash
 amx share "debug the production-only timeout issue" --agents claude-code,codex

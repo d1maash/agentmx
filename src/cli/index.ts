@@ -18,6 +18,9 @@ import { statsCommand } from "./commands/stats.js";
 import { costsCommand } from "./commands/costs.js";
 import { qualityCommand } from "./commands/quality.js";
 import { dashboardCommand } from "./commands/dashboard.js";
+import { solveCommand } from "./commands/solve.js";
+import { prFactoryCommand } from "./commands/pr-factory.js";
+import { optimizeCommand } from "./commands/optimize.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json");
@@ -267,6 +270,152 @@ program
   .action(async (opts: { port?: string; open?: boolean }) => {
     await dashboardCommand(opts);
   });
+
+// Solve a task with verification-first workflow
+program
+  .command("solve <task>")
+  .description(
+    "Run an agent on a task and verify the patch (diff, tests, lint, typecheck, compliance)"
+  )
+  .option("-a, --agent <name>", "Agent to use", "auto")
+  .option("--no-verify", "Skip verification (just run the agent)")
+  .option("--verify", "Run verification (default; explicit form)")
+  .option("--verify-only", "Skip the agent run and verify the working tree")
+  .option("--no-tests", "Don't run tests during verification")
+  .option("--no-lint", "Don't run lint during verification")
+  .option("--no-typecheck", "Don't run typecheck during verification")
+  .option("--proof-out <path>", "Path to write proof JSON (default: .agentmx/last-proof.json)")
+  .option("--patch-out <path>", "Path to write the patch (default: .agentmx/last.patch)")
+  .option("--timeout <ms>", "Per-check timeout in milliseconds")
+  .action(
+    async (
+      task: string,
+      opts: {
+        agent?: string;
+        verify?: boolean;
+        verifyOnly?: boolean;
+        tests?: boolean;
+        lint?: boolean;
+        typecheck?: boolean;
+        proofOut?: string;
+        patchOut?: string;
+        timeout?: string;
+      }
+    ) => {
+      const config = await loadConfig();
+      await solveCommand(
+        task,
+        {
+          agent: opts.agent,
+          verify: opts.verify,
+          verifyOnly: opts.verifyOnly,
+          noTests: opts.tests === false,
+          noLint: opts.lint === false,
+          noTypecheck: opts.typecheck === false,
+          proofOut: opts.proofOut,
+          patchOut: opts.patchOut,
+          timeout: opts.timeout,
+        },
+        config
+      );
+    }
+  );
+
+// PR Factory — issue → agents → PR → review → CI
+program
+  .command("pr-factory <issue>")
+  .description(
+    "Take a GitHub issue, run agents to implement it, open a PR, post a review, and watch CI"
+  )
+  .option("--coder <agent>", "Agent that writes code")
+  .option("--reviewer <agent>", "Agent that reviews the PR")
+  .option("--tester <agent>", "Agent that adds tests (omit to skip)")
+  .option("--no-tester", "Skip the test stage")
+  .option("--base <branch>", "Base branch for the PR", "main")
+  .option("--branch <name>", "Override the generated branch name")
+  .option("--draft", "Open the PR as a draft")
+  .option("--no-ci", "Skip CI watching after the PR is opened")
+  .option("--ci-timeout <s>", "CI wait timeout in seconds (default 900)")
+  .option("--ci-rounds <n>", "Maximum CI fix rounds (default 1)")
+  .action(
+    async (
+      issue: string,
+      opts: {
+        coder?: string;
+        reviewer?: string;
+        tester?: string | false;
+        base?: string;
+        branch?: string;
+        draft?: boolean;
+        ci?: boolean;
+        ciTimeout?: string;
+        ciRounds?: string;
+      }
+    ) => {
+      const config = await loadConfig();
+      const noTester = opts.tester === false;
+      await prFactoryCommand(
+        issue,
+        {
+          coder: opts.coder,
+          reviewer: opts.reviewer,
+          tester: typeof opts.tester === "string" ? opts.tester : undefined,
+          noTester,
+          base: opts.base,
+          branch: opts.branch,
+          draft: opts.draft,
+          noCi: opts.ci === false,
+          ciTimeout: opts.ciTimeout,
+          ciRounds: opts.ciRounds,
+        },
+        config
+      );
+    }
+  );
+
+// Cost/performance optimizer: cheap → verify → expensive escalation,
+// or parallel race that cancels siblings on first verified pass.
+program
+  .command("optimize <task>")
+  .description(
+    "Run cheapest agent first, escalate to expensive only if tests fail. Reports cost per successful PR."
+  )
+  .option(
+    "-t, --tiers <agents>",
+    "Agents in cheap → expensive order (comma-separated). Default: codex,claude-code"
+  )
+  .option(
+    "--race",
+    "Run all tiers in parallel; cancel siblings as soon as one verifies"
+  )
+  .option("--no-verify", "Skip verification — use raw exit codes only")
+  .option("--tests-only", "Only run tests during verification (skip lint/typecheck)")
+  .option("--timeout <seconds>", "Per-tier wall-clock timeout in seconds")
+  .action(
+    async (
+      task: string,
+      opts: {
+        tiers?: string;
+        race?: boolean;
+        verify?: boolean;
+        testsOnly?: boolean;
+        timeout?: string;
+      }
+    ) => {
+      const config = await loadConfig();
+      await optimizeCommand(
+        task,
+        {
+          tiers: opts.tiers,
+          race: opts.race,
+          noVerify: opts.verify === false,
+          testsOnly: opts.testsOnly,
+          timeout: opts.timeout,
+        },
+        config
+      );
+    }
+  );
 
 // Init — interactive setup
 program

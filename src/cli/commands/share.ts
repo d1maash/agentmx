@@ -18,7 +18,7 @@ export async function shareCommand(
 ): Promise<void> {
   const pm = new ProcessManager();
   const adapters = createAdapters(config);
-  const contextBus = new ContextBus(pm);
+  const contextBus = new ContextBus(pm, { cwd: process.cwd(), task });
 
   // Parse agents
   let agentNames: string[];

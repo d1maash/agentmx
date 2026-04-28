@@ -117,7 +117,7 @@ amx share "debug timeout issue" \
   --agents claude-code,codex
 ```
 
-Agents see each other's output in real time.
+Agents share a structured working state in real time.
 
 </td>
 <td width="50%" valign="top">
@@ -170,7 +170,7 @@ Open a browser-based analytics dashboard with interactive Chart.js charts — co
  Pipelines           Sequential agent handoff with context passing
  Voting              Multi-agent consensus with judge selection or merging
  Review Pipeline     Coder → Reviewer → Tester workflow
- Shared Context      Agents mirror live output to each other
+ Shared Context      Agents share structured working state
  Watch Mode          Re-run the same task automatically on file changes
  Sessions            Save, list, delete, and resume previous work
  Analytics           Usage stats, per-agent costs, budget alerts
