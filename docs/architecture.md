@@ -11,7 +11,8 @@ src/
   config/            # Schema (Zod), cosmiconfig loader, defaults
   core/              # Runtime: process manager, router, pipeline,
                      # session store, analytics, cost tracker,
-                     # voting, review pipeline, context bus
+                     # voting, review pipeline, context bus,
+                     # verifier, PR factory, optimizer, GitHub helpers
   tui/
     components/      # TUI views (tabs, status bar, dashboard, diff, etc.)
     hooks/           # Keyboard handling, agent lifecycle
@@ -30,8 +31,12 @@ src/
 | **VotingSession** | Coordinates parallel candidates + judge in `amx vote` |
 | **ReviewPipeline** | Coordinates coder → reviewer → tester in `amx review` |
 | **Analytics** | Aggregates session history into summaries |
-| **CostTracker** | Computes cost totals and budget alerts |
+| **CostTracker** | Computes cost totals, cost-per-pass, and budget alerts |
 | **QualityScorer** | Runs lint, test, and complexity checks |
+| **Verifier** | Produces a `VerificationProof` (diff, tests, lint, typecheck, compliance) for `amx solve` |
+| **Optimizer** | Cheap-first escalation and race-to-pass strategies for `amx optimize` |
+| **PRFactory** | Issue → code → test → push → PR → review → CI pipeline for `amx pr-factory` |
+| **GitHub helpers** | Wraps `gh` for issues, PRs, reviews, and CI status |
 
 ## Adapters
 

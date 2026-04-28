@@ -217,6 +217,112 @@ Requires at least two agents. The shared state tracks repo map, found files, hyp
 amx share "debug the production-only timeout issue" --agents claude-code,codex
 ```
 
+## solve
+
+```bash
+amx solve <task> [options]
+```
+
+Run an agent on a task and verify the resulting patch with objective checks: git diff, tests, lint, typecheck, and task compliance. Writes a `VerificationProof` artifact so you can prove the change is good — not just looks good.
+
+| Option | Description |
+|--------|-------------|
+| `-a, --agent <name>` | Agent to use. Defaults to `claude-code` when available. |
+| `--no-verify` | Skip verification — just run the agent. |
+| `--verify-only` | Skip the agent run; verify the current working tree. |
+| `--no-tests` | Don't run tests during verification. |
+| `--no-lint` | Don't run lint during verification. |
+| `--no-typecheck` | Don't run typecheck during verification. |
+| `--proof-out <path>` | Where to write the proof. Default `.agentmx/last-proof.json` (+ `.md`). |
+| `--patch-out <path>` | Where to write the patch. Default `.agentmx/last.patch`. |
+| `--timeout <ms>` | Per-check timeout in milliseconds. |
+
+Requires a git repository (it diffs `HEAD` vs working tree to capture the patch). Exits non-zero when verification fails.
+
+```bash
+# Run claude-code, verify, write proof + patch
+amx solve "fix the failing auth integration test"
+
+# Verify a patch you already applied by hand
+amx solve "tighten validation in auth.ts" --verify-only
+
+# Skip lint and typecheck, only run tests
+amx solve "speed up the parser" --no-lint --no-typecheck
+```
+
+The proof reports a per-check verdict (`pass` / `fail` / `skip`), a 0–100 weighted score, the diff stats, and excerpts from any failing checks.
+
+## pr-factory
+
+```bash
+amx pr-factory <issue> [options]
+```
+
+End-to-end pipeline that turns a GitHub issue into a reviewed pull request: fetch the issue → coder writes a patch → tester adds tests → commit and push → open a PR → reviewer posts a structured review → watch CI → optionally fix CI failures.
+
+Requires the GitHub CLI (`gh`) installed and authenticated.
+
+| Option | Description |
+|--------|-------------|
+| `--coder <agent>` | Agent that writes the implementation. |
+| `--reviewer <agent>` | Agent that posts the PR review. |
+| `--tester <agent>` | Agent that adds tests. Omit to use a third available agent. |
+| `--no-tester` | Skip the test stage entirely. |
+| `--base <branch>` | Base branch for the PR. Default `main`. |
+| `--branch <name>` | Override the auto-generated branch name. |
+| `--draft` | Open the PR as a draft. |
+| `--no-ci` | Don't watch CI after the PR is opened. |
+| `--ci-timeout <s>` | CI wait timeout in seconds. Default `900`. |
+| `--ci-rounds <n>` | Maximum CI fix rounds. Default `1`. |
+
+The issue argument can be an issue number (`123`), an `owner/repo#number`, or a full GitHub issue URL.
+
+```bash
+amx pr-factory 142 \
+  --coder codex \
+  --reviewer claude-code \
+  --tester aider
+
+amx pr-factory https://github.com/acme/api/issues/87 --draft --ci-rounds 2
+```
+
+When CI fails and `--ci-rounds` is greater than zero, the coder is rerun with the failing job logs as context.
+
+## optimize
+
+```bash
+amx optimize <task> [options]
+```
+
+Cost-aware orchestration. Run cheap agents first; only escalate to expensive agents when verification fails. Reports the **cost of a successful PR**, including dollars burned on cheaper attempts that didn't pass.
+
+| Option | Description |
+|--------|-------------|
+| `-t, --tiers <agents>` | Cheap-to-expensive agent list (comma-separated). Default `codex,claude-code`. |
+| `--race` | Run all tiers in parallel; cancel siblings as soon as one verifies. |
+| `--no-verify` | Skip verification — use raw exit codes for success detection. |
+| `--tests-only` | Only run tests during verification (skip lint/typecheck). |
+| `--timeout <seconds>` | Per-tier wall-clock timeout. |
+
+Two modes:
+
+- **Escalate** (default) — run tier 1, verify, only run tier 2 on failure. Lowest spend on average.
+- **Race** (`--race`) — run all tiers concurrently, cancel the rest the moment one passes verification. Lowest wall-clock at the cost of more spend.
+
+```bash
+# Default cheap → expensive escalation
+amx optimize "make the failing parser test pass"
+
+# Custom tiers
+amx optimize "ship the new tracing middleware" \
+  --tiers codex,aider,claude-code
+
+# Race mode for time-sensitive work
+amx optimize "patch the production crash" --race --timeout 180
+```
+
+Each run prints a per-tier breakdown plus the total cost of producing the passing patch.
+
 ## sessions
 
 ```bash
