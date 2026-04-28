@@ -393,6 +393,7 @@ export function App({
           />
         )}
         <StatusBar
+          sessions={sessions}
           session={activeSession}
           focused={inputFocused}
           scrollOffset={activeScrollOffset}
@@ -491,6 +492,7 @@ export function App({
         />
       )}
       <StatusBar
+        sessions={sessions}
         session={activeSession}
         focused={inputFocused}
         scrollOffset={activeScrollOffset}

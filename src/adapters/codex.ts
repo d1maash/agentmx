@@ -3,6 +3,7 @@ import type {
   AgentProcess,
   AgentInfo,
   AgentOutput,
+  AgentProgress,
   AgentStatus,
   SpawnOptions,
 } from "./types.js";
@@ -155,6 +156,7 @@ function createCodexTextBridge(options: {
   let stopped = false;
   let processing = false;
   let doneResolved = false;
+  let currentProgress: AgentProgress | undefined;
   let resolveDone!: (value: { exitCode: number }) => void;
 
   const done = new Promise<{ exitCode: number }>((resolve) => {
@@ -187,6 +189,7 @@ function createCodexTextBridge(options: {
 
     processing = true;
     currentStatus = "running";
+    currentProgress = { indeterminate: true, label: "Working" };
 
     const args = threadId
       ? [...baseArgs, "exec", "resume", "--json", threadId, prompt]
@@ -346,6 +349,7 @@ function createCodexTextBridge(options: {
       pushOutput(`Codex launch error: ${err.message}\n`, "stderr");
       activeChild = null;
       processing = false;
+      currentProgress = undefined;
       currentStatus = "error";
       runNext();
     });
@@ -353,6 +357,7 @@ function createCodexTextBridge(options: {
     child.on("close", (code) => {
       activeChild = null;
       processing = false;
+      currentProgress = undefined;
       processJsonlChunk("", true);
 
       const nonJsonStdout = nonJsonStdoutLines.join("\n").trim();
@@ -434,6 +439,12 @@ function createCodexTextBridge(options: {
   };
 
   return {
+    get pid() {
+      return activeChild?.pid;
+    },
+    get progress() {
+      return currentProgress;
+    },
     send(input: string) {
       if (stopped) return;
 
@@ -460,6 +471,7 @@ function createCodexTextBridge(options: {
     async kill() {
       stopped = true;
       queue.length = 0;
+      currentProgress = undefined;
 
       if (activeChild && !activeChild.killed) {
         activeChild.kill("SIGTERM");

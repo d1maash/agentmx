@@ -1,4 +1,9 @@
-import type { AgentOutput, AgentProcess, AgentStatus } from "./types.js";
+import type {
+  AgentOutput,
+  AgentProcess,
+  AgentProgress,
+  AgentStatus,
+} from "./types.js";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 
@@ -36,6 +41,10 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
   const buffer: AgentOutput[] = [];
   const emitter = new EventEmitter();
   let currentStatus: AgentStatus = "running";
+  let currentProgress: AgentProgress | undefined =
+    task && task !== "interactive"
+      ? { indeterminate: true, label: "Working" }
+      : undefined;
   let exitResolve: (value: { exitCode: number }) => void;
 
   const donePromise = new Promise<{ exitCode: number }>((resolve) => {
@@ -56,6 +65,10 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
 
   ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
     currentStatus = exitCode === 0 ? "done" : "error";
+    currentProgress =
+      exitCode === 0 && task && task !== "interactive"
+        ? { percent: 100, label: "Complete" }
+        : undefined;
     emitter.emit("exit", exitCode);
     exitResolve({ exitCode });
   });
@@ -106,6 +119,12 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
   };
 
   return {
+    get pid() {
+      return ptyProcess.pid;
+    },
+    get progress() {
+      return currentProgress;
+    },
     send(input: string) {
       ptyProcess.write(input);
     },
@@ -118,6 +137,7 @@ export function spawnPty(options: PtySpawnOptions): AgentProcess {
     },
     buffer,
     async kill() {
+      currentProgress = undefined;
       try {
         const treeKill = (await import("tree-kill")).default;
         await new Promise<void>((resolve, reject) => {

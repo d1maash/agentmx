@@ -1,5 +1,13 @@
 export type AgentStatus = "idle" | "spawning" | "running" | "error" | "done";
 
+export interface AgentProgress {
+  percent?: number;
+  current?: number;
+  total?: number;
+  label?: string;
+  indeterminate?: boolean;
+}
+
 export type ClaudeActivity =
   | { kind: "init"; model: string; sessionId: string; tools: string[] }
   | { kind: "thinking"; text: string; streaming?: boolean }
@@ -24,6 +32,12 @@ export interface AgentInfo {
 }
 
 export interface AgentProcess {
+  /** PID of the currently active child process, if available */
+  readonly pid?: number;
+
+  /** Optional progress reported by the agent */
+  readonly progress?: AgentProgress;
+
   /** Send text to agent's stdin */
   send(input: string): void;
 

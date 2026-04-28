@@ -1,8 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
-import type { AgentAdapter, AgentOutput, AgentStatus } from "../../adapters/types.js";
+import { useState, useEffect, useCallback, useRef } from "react";
+import type {
+  AgentAdapter,
+  AgentOutput,
+  AgentProgress,
+  AgentStatus,
+} from "../../adapters/types.js";
 import type { ProcessManager } from "../../core/process-manager.js";
 import type { Config } from "../../config/schema.js";
 import { createAdapters } from "../../adapters/factory.js";
+import { getProcessHealth, type ProcessHealthSnapshot } from "../../core/process-health.js";
 
 export interface AgentSession {
   id: string;
@@ -14,16 +20,40 @@ export interface AgentSession {
   startedAt: number;
   /** Last tool name invoked (computed from activity buffer, Claude Code only) */
   lastTool?: string;
+  pid?: number;
+  cpuPercent?: number;
+  memoryBytes?: number;
+  progress?: AgentProgress;
 }
 
 export function useAgents(processManager: ProcessManager, config: Config) {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [adapters] = useState(() => createAdapters(config));
+  const healthBySessionIdRef = useRef<Record<string, ProcessHealthSnapshot>>({});
+
+  const resolveProgress = useCallback((
+    status: AgentStatus,
+    task: string,
+    agentName: string,
+    progress: AgentProgress | undefined,
+    lastTool: string | undefined
+  ): AgentProgress | undefined => {
+    if (progress) return progress;
+    if (status !== "running") return undefined;
+    if (task !== "interactive" || agentName === "codex" || lastTool) {
+      return {
+        indeterminate: true,
+        label: lastTool ?? "Working",
+      };
+    }
+    return undefined;
+  }, []);
 
   // Sync sessions from process manager
   const refreshSessions = useCallback(() => {
     const pmSessions = processManager.getSessions();
+    const healthBySessionId = healthBySessionIdRef.current;
     setSessions(
       pmSessions.map((s) => {
         // Compute lastTool from most recent tool_call activity
@@ -45,10 +75,20 @@ export function useAgents(processManager: ProcessManager, config: Config) {
           buffer: s.process.buffer,
           startedAt: s.startedAt,
           lastTool,
+          pid: s.process.pid,
+          cpuPercent: healthBySessionId[s.id]?.cpuPercent,
+          memoryBytes: healthBySessionId[s.id]?.memoryBytes,
+          progress: resolveProgress(
+            s.process.status,
+            s.task,
+            s.agentName,
+            s.process.progress,
+            lastTool
+          ),
         };
       })
     );
-  }, [processManager, adapters]);
+  }, [processManager, adapters, resolveProgress]);
 
   useEffect(() => {
     const onStart = () => refreshSessions();
@@ -66,6 +106,66 @@ export function useAgents(processManager: ProcessManager, config: Config) {
       processManager.off("session:start", onStart);
       processManager.off("session:end", onEnd);
       processManager.off("session:stop", onStop);
+      clearInterval(interval);
+    };
+  }, [processManager, refreshSessions]);
+
+  useEffect(() => {
+    let disposed = false;
+    let refreshToken = 0;
+
+    const refreshHealth = async () => {
+      const token = ++refreshToken;
+      const pmSessions = processManager.getSessions();
+      const sessionPids = pmSessions
+        .map((session) => ({
+          id: session.id,
+          pid: session.process.pid,
+        }))
+        .filter((session): session is { id: string; pid: number } =>
+          typeof session.pid === "number" && Number.isInteger(session.pid) && session.pid > 0
+        );
+
+      if (sessionPids.length === 0) {
+        healthBySessionIdRef.current = {};
+        if (!disposed) refreshSessions();
+        return;
+      }
+
+      const healthByPid = await getProcessHealth(sessionPids.map((session) => session.pid));
+      if (disposed || token !== refreshToken) return;
+
+      const nextHealthBySessionId: Record<string, ProcessHealthSnapshot> = {};
+      for (const session of sessionPids) {
+        const health = healthByPid.get(session.pid);
+        if (health) {
+          nextHealthBySessionId[session.id] = health;
+        }
+      }
+
+      healthBySessionIdRef.current = nextHealthBySessionId;
+      refreshSessions();
+    };
+
+    const onSessionChange = () => {
+      void refreshHealth();
+    };
+
+    processManager.on("session:start", onSessionChange);
+    processManager.on("session:end", onSessionChange);
+    processManager.on("session:stop", onSessionChange);
+
+    void refreshHealth();
+    const interval = setInterval(() => {
+      void refreshHealth();
+    }, 1000);
+
+    return () => {
+      disposed = true;
+      refreshToken += 1;
+      processManager.off("session:start", onSessionChange);
+      processManager.off("session:end", onSessionChange);
+      processManager.off("session:stop", onSessionChange);
       clearInterval(interval);
     };
   }, [processManager, refreshSessions]);
