@@ -15,6 +15,29 @@ AgentMX provides several ways to coordinate multiple agents beyond simple single
 | Benchmarking | `amx bench` | Objective single-task comparison |
 | Verified suites | `amx bench suite` | Repeatable benchmark runs with reports |
 
+## Auto-Routing From History
+
+With `router.mode: auto`, `amx run <task>` scores enabled agents from saved session history before it starts work. It classifies the task, compares similar past sessions, and factors in overall success, build failures, and average cost.
+
+Depending on the score and task risk, auto-routing can select:
+
+| Strategy | Behavior |
+|----------|----------|
+| `single` | Run the strongest historical agent |
+| `parallel` | Launch the top two or three agents in split view |
+| `review-loop` | Run the structured coder → reviewer → tester pipeline |
+| `cheap-first` | Try the cheapest reliable agent, then retry with the strongest fallback if needed |
+
+Examples:
+
+```bash
+amx run "fix auth bug"
+amx run "cheap update docs"
+amx run "repair failing vitest suite"
+```
+
+If there are fewer than a few usable historical sessions, AgentMX falls back to router rules and then `default_agent`.
+
 ## Parallel Execution
 
 Run multiple agents on the same task and compare their output in split view:

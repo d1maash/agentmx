@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { Router } from "../../core/router.js";
+import { Router, type RoutePlan } from "../../core/router.js";
 import type { Config } from "../../config/schema.js";
 
 export interface RunTargetOptions {
@@ -10,7 +10,17 @@ export interface RunTargetOptions {
 export interface ResolvedRunTargets {
   initialAgent?: string;
   parallelAgents?: string[];
+  reviewRoles?: {
+    coder: string;
+    reviewer: string;
+    tester: string;
+  };
+  cheapFirst?: {
+    firstAgent: string;
+    fallbackAgent: string;
+  };
   splitView: boolean;
+  routePlan?: RoutePlan;
 }
 
 export function parseAgentList(value: string): string[] {
@@ -57,18 +67,55 @@ export async function resolveRunTargets(
   let initialAgent: string;
   if (options.agent && options.agent !== "auto") {
     initialAgent = options.agent;
-  } else {
-    const router = new Router(config);
-    initialAgent = await router.route(task);
+    if (availableAgents) {
+      validateAgentNames([initialAgent], availableAgents);
+    }
+
+    return {
+      initialAgent,
+      splitView: false,
+    };
   }
 
+  const router = new Router(config);
+  const plan = await router.routePlan(task, availableAgents);
+
   if (availableAgents) {
-    validateAgentNames([initialAgent], availableAgents);
+    validateAgentNames(plan.agents, availableAgents);
+  }
+
+  if (plan.strategy === "parallel") {
+    return {
+      parallelAgents: plan.agents,
+      splitView: true,
+      routePlan: plan,
+    };
+  }
+
+  if (plan.strategy === "review-loop" && plan.roles) {
+    return {
+      reviewRoles: plan.roles,
+      splitView: false,
+      routePlan: plan,
+    };
+  }
+
+  if (plan.strategy === "cheap-first" && plan.fallbackAgent) {
+    return {
+      initialAgent: plan.primaryAgent,
+      cheapFirst: {
+        firstAgent: plan.primaryAgent,
+        fallbackAgent: plan.fallbackAgent,
+      },
+      splitView: false,
+      routePlan: plan,
+    };
   }
 
   return {
-    initialAgent,
+    initialAgent: plan.primaryAgent,
     splitView: false,
+    routePlan: plan,
   };
 }
 

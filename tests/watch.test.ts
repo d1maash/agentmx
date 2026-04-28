@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { SavedSession } from "../src/core/session-store.js";
+import { Router } from "../src/core/router.js";
 import {
   splitOutputForPrefix,
   summarizeChangedPaths,
@@ -35,12 +37,14 @@ describe("resolveRunTargets", () => {
   };
 
   it("routes auto mode through the configured router", async () => {
-    await expect(
-      resolveRunTargets("write auth tests", { agent: "auto" }, config, [
-        "codex",
-        "claude-code",
-      ])
-    ).resolves.toEqual({
+    const targets = await resolveRunTargets(
+      "write auth tests",
+      { agent: "auto" },
+      config,
+      ["codex", "claude-code"]
+    );
+
+    expect(targets).toMatchObject({
       initialAgent: "codex",
       splitView: false,
     });
@@ -55,6 +59,100 @@ describe("resolveRunTargets", () => {
     ).resolves.toEqual({
       parallelAgents: ["codex", "claude-code"],
       splitView: true,
+    });
+  });
+});
+
+describe("Router history mode", () => {
+  const config = {
+    default_agent: "claude-code",
+    agents: {
+      "claude-code": { command: "claude", args: [], env: {}, enabled: true },
+      codex: { command: "codex", args: [], env: {}, enabled: true },
+      gemini: { command: "gemini", args: [], env: {}, enabled: true },
+    },
+    router: {
+      mode: "auto" as const,
+      rules: [],
+    },
+    ui: {
+      theme: "dark" as const,
+      show_tokens: false,
+      show_cost: false,
+      split_view: "vertical" as const,
+    },
+  };
+
+  function session(
+    agentName: string,
+    task: string,
+    status: "done" | "error",
+    cost?: number
+  ): SavedSession {
+    return {
+      id: `${agentName}-${task}-${status}`,
+      agentName,
+      task,
+      startedAt: 1,
+      endedAt: 2,
+      exitCode: status === "done" ? 0 : 1,
+      status,
+      cwd: "/repo",
+      buffer:
+        cost === undefined
+          ? [{ type: "stdout", data: "ok", timestamp: 1 }]
+          : [
+              {
+                type: "system",
+                data: "cost",
+                timestamp: 1,
+                activity: { kind: "cost", totalCost: cost, durationMs: 1 },
+              },
+            ],
+    };
+  }
+
+  it("uses task history to pick a review loop for risky auth fixes", async () => {
+    const router = new Router(config, {
+      sessions: [
+        session("claude-code", "fix auth bug", "done", 0.2),
+        session("claude-code", "fix login token issue", "done", 0.2),
+        session("codex", "fix auth bug", "error", 0.05),
+        session("codex", "write ui component", "done", 0.05),
+        session("gemini", "fix build error", "done", 0.01),
+      ],
+    });
+
+    await expect(
+      router.routePlan("fix auth bug", ["claude-code", "codex", "gemini"])
+    ).resolves.toMatchObject({
+      strategy: "review-loop",
+      taskKind: "security",
+      primaryAgent: "claude-code",
+      roles: {
+        coder: "claude-code",
+      },
+    });
+  });
+
+  it("can choose cheap-first when a cheaper agent is reliable enough", async () => {
+    const router = new Router(config, {
+      sessions: [
+        session("claude-code", "update docs", "done", 0.4),
+        session("claude-code", "write docs", "done", 0.4),
+        session("codex", "update docs", "done", 0.02),
+        session("codex", "write docs", "done", 0.02),
+        session("gemini", "update docs", "error", 0.01),
+      ],
+    });
+
+    await expect(
+      router.routePlan("cheap update docs", ["claude-code", "codex", "gemini"])
+    ).resolves.toMatchObject({
+      strategy: "cheap-first",
+      taskKind: "docs",
+      primaryAgent: "codex",
+      fallbackAgent: "claude-code",
     });
   });
 });
