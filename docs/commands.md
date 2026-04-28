@@ -205,13 +205,13 @@ amx review "add request tracing to the API" \
 amx share <task> [options]
 ```
 
-Run a task on multiple agents with real-time context sharing. Each agent sees the others' output as it comes in.
+Run a task on multiple agents with real-time context sharing. Each agent receives a structured shared state distilled from the others' output.
 
 | Option | Description |
 |--------|-------------|
 | `-a, --agents <list>` | Comma-separated agents. Defaults to all enabled. |
 
-Requires at least two agents. Long bursts are truncated before forwarding.
+Requires at least two agents. The shared state tracks repo map, found files, hypotheses, failing tests, decisions, rejected approaches, and final patch candidates.
 
 ```bash
 amx share "debug the production-only timeout issue" --agents claude-code,codex

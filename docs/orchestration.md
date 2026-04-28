@@ -153,11 +153,12 @@ amx share "investigate the flaky CI failure" --agents claude-code,codex
 ### How It Works
 
 - Each agent is connected to a shared context bus
-- When one agent emits output, it's forwarded to others as context
-- Long bursts are truncated before forwarding to reduce flooding
+- Agent output is distilled into a structured shared state
+- The shared state tracks repo map, found files, hypotheses, failing tests, decisions, rejected approaches, and final patch candidates
+- Agents receive compact state snapshots when meaningful shared state changes
 - Requires at least two agents
 
-This mode is intentionally lightweight — it mirrors output as plain text rather than maintaining a formal shared state model. Best for collaborative investigation and debugging.
+This mode keeps a common working memory instead of mirroring the full transcript. Best for collaborative investigation and debugging where agents should converge on the same facts and decisions.
 
 ## Benchmarking
 

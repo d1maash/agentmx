@@ -28,14 +28,30 @@ function printCostTable(costs: AgentCostSummary[]): void {
     return;
   }
 
-  const headers = ["Agent", "Today", "This Week", "This Month", "Total", "Sessions", "Avg/Session"];
-  const widths = [16, 10, 12, 12, 12, 10, 12];
+  const headers = [
+    "Agent",
+    "Today",
+    "This Week",
+    "This Month",
+    "Total",
+    "Sessions",
+    "Avg/Session",
+    "✓/Session",
+    "Cost/Pass",
+  ];
+  const widths = [16, 10, 12, 12, 12, 10, 12, 12, 12];
 
   const headerLine = headers.map((h, i) => pad(chalk.bold(h), widths[i])).join("  ");
   console.log(headerLine);
   console.log(chalk.dim("─".repeat(widths.reduce((a, b) => a + b, 0) + (widths.length - 1) * 2)));
 
   for (const c of costs) {
+    const successRatio =
+      c.sessionCount > 0
+        ? `${c.successCount}/${c.sessionCount}`
+        : "—";
+    const costPerPass =
+      c.costPerSuccess !== undefined ? formatCost(c.costPerSuccess) : chalk.dim("—");
     const row = [
       pad(chalk.cyan(c.agentName), widths[0]),
       pad(formatCost(c.todayCost), widths[1], "right"),
@@ -44,6 +60,8 @@ function printCostTable(costs: AgentCostSummary[]): void {
       pad(chalk.bold(formatCost(c.totalCost)), widths[4], "right"),
       pad(String(c.sessionCount), widths[5], "right"),
       pad(formatCost(c.avgCostPerSession), widths[6], "right"),
+      pad(successRatio, widths[7], "right"),
+      pad(costPerPass, widths[8], "right"),
     ];
     console.log(row.join("  "));
   }
@@ -57,8 +75,9 @@ function printCostTable(costs: AgentCostSummary[]): void {
       month: acc.month + c.monthCost,
       total: acc.total + c.totalCost,
       sessions: acc.sessions + c.sessionCount,
+      successes: acc.successes + c.successCount,
     }),
-    { today: 0, week: 0, month: 0, total: 0, sessions: 0 }
+    { today: 0, week: 0, month: 0, total: 0, sessions: 0, successes: 0 }
   );
 
   const totalRow = [
@@ -69,6 +88,14 @@ function printCostTable(costs: AgentCostSummary[]): void {
     pad(chalk.bold(formatCost(totals.total)), widths[4], "right"),
     pad(chalk.bold(String(totals.sessions)), widths[5], "right"),
     pad(formatCost(totals.sessions > 0 ? totals.total / totals.sessions : 0), widths[6], "right"),
+    pad(`${totals.successes}/${totals.sessions}`, widths[7], "right"),
+    pad(
+      totals.successes > 0
+        ? chalk.bold(formatCost(totals.total / totals.successes))
+        : chalk.dim("—"),
+      widths[8],
+      "right"
+    ),
   ];
   console.log(totalRow.join("  "));
 }
