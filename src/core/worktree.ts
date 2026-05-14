@@ -153,7 +153,19 @@ export async function applyWorktreeDiff(
   destCwd: string,
   baseRef = "HEAD"
 ): Promise<boolean> {
-  const diff = await git(["diff", baseRef], worktreePath).catch(() => "");
+  // Mark untracked files as intent-to-add so they show up in `git diff`.
+  // Without this, brand-new files an agent created are silently dropped.
+  await git(["add", "-N", "--", "."], worktreePath).catch(() => undefined);
+  // Capture raw stdout — git apply needs the trailing newline that the
+  // promisified helper's .trim() would otherwise eat.
+  const diff = await new Promise<string>((resolveP) => {
+    execFile(
+      "git",
+      ["diff", "--binary", baseRef],
+      { cwd: worktreePath, maxBuffer: 64 * 1024 * 1024 },
+      (err, stdout) => resolveP(err ? "" : stdout)
+    );
+  });
   if (!diff) return false;
   await new Promise<void>((resolveP, rejectP) => {
     const child = execFile(
