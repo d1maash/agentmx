@@ -44,6 +44,22 @@ function bootstrapCi(): void {
   process.env.AGENTMX_CI = "1";
 }
 
+/**
+ * Sentinel used to short-circuit a ci command after we've already written the
+ * report. The outer try/catch re-raises this through process.exit instead of
+ * misinterpreting it as an unexpected runtime error and writing a second
+ * report on top of the real one.
+ */
+class CiExitSignal extends Error {
+  constructor(public readonly code: CiExit) {
+    super(`__amx_ci_exit_${code}`);
+  }
+}
+
+function exitWith(code: CiExit): never {
+  throw new CiExitSignal(code);
+}
+
 function parseMaxCost(raw: string | undefined): number | undefined {
   if (!raw) return undefined;
   const n = parseFloat(raw);
