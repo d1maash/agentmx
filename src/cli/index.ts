@@ -163,10 +163,23 @@ program
     "-s, --strategy <strategy>",
     'Voting strategy: "best" or "merge" (default: best)'
   )
+  .option("--isolate", "Run each candidate in its own git worktree")
+  .option("--no-isolate", "Disable worktree isolation even if enabled in config")
+  .option("--apply-winner", "Apply the winner's diff back into cwd (requires --isolate)")
+  .option("--keep-worktrees", "Keep worktrees on disk after the vote")
+  .option("--max-cost <usd>", "Kill any candidate that crosses this USD spend")
   .action(
     async (
       task: string,
-      opts: { agents?: string; judge?: string; strategy?: string }
+      opts: {
+        agents?: string;
+        judge?: string;
+        strategy?: string;
+        isolate?: boolean;
+        applyWinner?: boolean;
+        keepWorktrees?: boolean;
+        maxCost?: string;
+      }
     ) => {
       const config = await loadConfig();
       await voteCommand(task, opts, config);
@@ -287,6 +300,7 @@ program
   .option("--proof-out <path>", "Path to write proof JSON (default: .agentmx/last-proof.json)")
   .option("--patch-out <path>", "Path to write the patch (default: .agentmx/last.patch)")
   .option("--timeout <ms>", "Per-check timeout in milliseconds")
+  .option("--max-cost <usd>", "Kill the agent if its reported spend reaches this USD cap")
   .action(
     async (
       task: string,
@@ -300,6 +314,7 @@ program
         proofOut?: string;
         patchOut?: string;
         timeout?: string;
+        maxCost?: string;
       }
     ) => {
       const config = await loadConfig();
@@ -315,6 +330,7 @@ program
           proofOut: opts.proofOut,
           patchOut: opts.patchOut,
           timeout: opts.timeout,
+          maxCost: opts.maxCost,
         },
         config
       );
@@ -337,6 +353,7 @@ program
   .option("--no-ci", "Skip CI watching after the PR is opened")
   .option("--ci-timeout <s>", "CI wait timeout in seconds (default 900)")
   .option("--ci-rounds <n>", "Maximum CI fix rounds (default 1)")
+  .option("--max-cost <usd>", "Kill any stage agent that crosses this USD spend")
   .action(
     async (
       issue: string,
@@ -350,6 +367,7 @@ program
         ci?: boolean;
         ciTimeout?: string;
         ciRounds?: string;
+        maxCost?: string;
       }
     ) => {
       const config = await loadConfig();
@@ -367,6 +385,7 @@ program
           noCi: opts.ci === false,
           ciTimeout: opts.ciTimeout,
           ciRounds: opts.ciRounds,
+          maxCost: opts.maxCost,
         },
         config
       );
@@ -391,6 +410,10 @@ program
   .option("--no-verify", "Skip verification — use raw exit codes only")
   .option("--tests-only", "Only run tests during verification (skip lint/typecheck)")
   .option("--timeout <seconds>", "Per-tier wall-clock timeout in seconds")
+  .option("--isolate", "Run each tier in its own git worktree (winner is applied back)")
+  .option("--no-isolate", "Disable worktree isolation even if enabled in config")
+  .option("--keep-worktrees", "Keep worktrees on disk after the run")
+  .option("--max-cost <usd>", "Kill any tier that crosses this USD spend")
   .action(
     async (
       task: string,
@@ -400,6 +423,9 @@ program
         verify?: boolean;
         testsOnly?: boolean;
         timeout?: string;
+        isolate?: boolean;
+        keepWorktrees?: boolean;
+        maxCost?: string;
       }
     ) => {
       const config = await loadConfig();
@@ -411,6 +437,9 @@ program
           noVerify: opts.verify === false,
           testsOnly: opts.testsOnly,
           timeout: opts.timeout,
+          isolate: opts.isolate,
+          keepWorktrees: opts.keepWorktrees,
+          maxCost: opts.maxCost,
         },
         config
       );

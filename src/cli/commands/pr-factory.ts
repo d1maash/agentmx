@@ -9,6 +9,15 @@ import { checkGhInstalled } from "../../core/github.js";
 import type { Config } from "../../config/schema.js";
 import chalk from "chalk";
 
+function parseMaxCost(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`--max-cost must be a positive number; got "${raw}"`);
+  }
+  return n;
+}
+
 const STAGE_LABELS: Record<PRFactoryStage, string> = {
   "fetch-issue": "Issue",
   code: "Coder",
@@ -113,7 +122,18 @@ export async function prFactoryCommand(
   console.log(chalk.dim(`  Base:     ${options.base ?? "main"}`));
   console.log();
 
+  const maxCostUsd = parseMaxCost(options.maxCost) ?? config.budgets.hard_stop_per_run;
+  if (maxCostUsd) {
+    console.log(chalk.dim(`  Hard-stop: $${maxCostUsd.toFixed(2)} per stage`));
+    pm.on("budget:hardstop", (info: { agent: string; cost: number; cap: number }) => {
+      console.log(
+        chalk.red(`[budget] ${info.agent} killed — cost $${info.cost.toFixed(4)} ≥ cap $${info.cap.toFixed(2)}`)
+      );
+    });
+  }
+
   const factory = new PRFactory(roles, pm, adapters);
+  factory.maxCostPerStageUsd = maxCostUsd;
 
   let currentStage: PRFactoryStage | "" = "";
   try {
