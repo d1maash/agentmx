@@ -136,6 +136,9 @@ export async function optimizeCommand(
     onTierStart,
     onTierEnd,
     onOutput,
+    isolate,
+    keepWorktrees: options.keepWorktrees,
+    maxCostPerTierUsd: maxCostUsd,
   });
 
   await pm.stopAll();
@@ -218,6 +221,15 @@ function formatCost(cost: number): string {
   if (cost === 0) return "$0.00";
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
+}
+
+function parseMaxCost(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`--max-cost must be a positive number; got "${raw}"`);
+  }
+  return n;
 }
 
 function formatDuration(ms: number): string {
