@@ -1,6 +1,11 @@
 import type { AgentAdapter, AgentProcess, ClaudeActivity } from "../adapters/types.js";
 import { ProcessManager } from "./process-manager.js";
 import { verifySolution, type VerificationProof } from "./verifier.js";
+import {
+  allocateWorktree,
+  applyWorktreeDiff,
+  type AllocatedWorktree,
+} from "./worktree.js";
 
 export interface OptimizerTier {
   /** Adapter name to invoke */
@@ -29,6 +34,17 @@ export interface OptimizerOptions {
     runTypecheck?: boolean;
     timeoutMs?: number;
   };
+  /**
+   * Allocate a fresh git worktree per tier so siblings (in race mode) and
+   * prior failed attempts never contaminate the next agent's working tree.
+   * Verification runs inside the same worktree. The winner's diff is
+   * applied back into `cwd` automatically — losers are discarded.
+   */
+  isolate?: boolean;
+  /** Keep worktrees on disk after a run (useful for post-mortem). */
+  keepWorktrees?: boolean;
+  /** Hard cost cap (USD) per tier. Tier is killed and marked failed when reached. */
+  maxCostPerTierUsd?: number;
 }
 
 export interface TierResult {
@@ -41,6 +57,10 @@ export interface TierResult {
   proof?: VerificationProof;
   /** Reason a tier was skipped or aborted ("timeout", "cancelled", etc.) */
   abortedReason?: string;
+  /** When isolate=true, the worktree path this tier ran inside. */
+  worktreePath?: string;
+  /** True when this tier was killed by the per-tier cost cap. */
+  hardStopped?: boolean;
 }
 
 export interface OptimizerOutcome {
@@ -76,6 +96,8 @@ export async function escalateUntilPass(
   }
   const cwd = options.cwd ?? process.cwd();
   const attempts: TierResult[] = [];
+  const winnerWorktrees: AllocatedWorktree[] = [];
+  const loserWorktrees: AllocatedWorktree[] = [];
 
   for (let i = 0; i < tiers.length; i++) {
     const tier = tiers[i];
@@ -95,10 +117,38 @@ export async function escalateUntilPass(
 
     options.onTierStart?.(tier, i);
 
+    // Isolation: one worktree per tier. Skipped attempts (no adapter / spawn
+    // failure) above don't allocate.
+    let workspace: AllocatedWorktree | undefined;
+    if (options.isolate) {
+      try {
+        workspace = await allocateWorktree(cwd, {
+          label: tier.label ?? tier.agent,
+          keepOnCleanup: options.keepWorktrees,
+        });
+      } catch (err) {
+        attempts.push({
+          tier,
+          index: i,
+          exitCode: -1,
+          cost: 0,
+          durationMs: 0,
+          verdict: "fail",
+          abortedReason: `worktree allocation failed: ${err instanceof Error ? err.message : err}`,
+        });
+        continue;
+      }
+    }
+
+    const tierCwd = workspace?.path ?? cwd;
     const started = Date.now();
-    const sessionId = await pm.start(adapter, task);
+    const sessionId = await pm.start(adapter, task, {
+      cwd: tierCwd,
+      maxCostUsd: options.maxCostPerTierUsd,
+    });
     const proc = pm.get(sessionId);
     if (!proc) {
+      if (workspace) loserWorktrees.push(workspace);
       attempts.push({
         tier,
         index: i,
@@ -107,6 +157,7 @@ export async function escalateUntilPass(
         durationMs: 0,
         verdict: "fail",
         abortedReason: "failed to spawn",
+        worktreePath: workspace?.path,
       });
       continue;
     }
@@ -125,6 +176,11 @@ export async function escalateUntilPass(
     }
     await stream.catch(() => undefined);
 
+    const hardStopped = pm.wasHardStopped(sessionId);
+    if (hardStopped && !abortedReason) {
+      abortedReason = `cost cap reached ($${options.maxCostPerTierUsd?.toFixed(2)})`;
+    }
+
     const cost = extractCost(proc);
     const durationMs = Date.now() - started;
 
@@ -133,7 +189,7 @@ export async function escalateUntilPass(
 
     if (!abortedReason && !options.skipVerify) {
       proof = verifySolution({
-        cwd,
+        cwd: tierCwd,
         task,
         runTests: options.verifyOverrides?.runTests,
         runLint: options.verifyOverrides?.runLint,
@@ -152,16 +208,35 @@ export async function escalateUntilPass(
       verdict,
       proof,
       abortedReason,
+      worktreePath: workspace?.path,
+      hardStopped,
     };
     attempts.push(result);
     options.onTierEnd?.(result);
 
     if (verdict === "pass") {
+      if (workspace) {
+        winnerWorktrees.push(workspace);
+        try {
+          await applyWorktreeDiff(workspace.path, cwd);
+        } catch (err) {
+          result.abortedReason = `winner patch did not apply cleanly: ${err instanceof Error ? err.message : err}`;
+        }
+      }
+      await cleanupWorktrees(loserWorktrees);
+      await cleanupWorktrees(winnerWorktrees);
       return finalize(attempts, result);
     }
+
+    if (workspace) loserWorktrees.push(workspace);
   }
 
+  await cleanupWorktrees(loserWorktrees);
   return finalize(attempts, undefined);
+}
+
+async function cleanupWorktrees(workspaces: AllocatedWorktree[]): Promise<void> {
+  await Promise.allSettled(workspaces.map((w) => w.cleanup()));
 }
 
 /**
@@ -191,6 +266,7 @@ export async function raceUntilPass(
     started: number;
     streamPromise?: Promise<void>;
     finished?: TierResult;
+    workspace?: AllocatedWorktree;
   };
 
   const runners: Runner[] = tiers.map((tier, index) => ({
@@ -214,8 +290,30 @@ export async function raceUntilPass(
       };
       continue;
     }
+    if (options.isolate) {
+      try {
+        r.workspace = await allocateWorktree(cwd, {
+          label: r.tier.label ?? r.tier.agent,
+          keepOnCleanup: options.keepWorktrees,
+        });
+      } catch (err) {
+        r.finished = {
+          tier: r.tier,
+          index: r.index,
+          exitCode: -1,
+          cost: 0,
+          durationMs: 0,
+          verdict: "fail",
+          abortedReason: `worktree allocation failed: ${err instanceof Error ? err.message : err}`,
+        };
+        continue;
+      }
+    }
     options.onTierStart?.(r.tier, r.index);
-    r.sessionId = await pm.start(adapter, task);
+    r.sessionId = await pm.start(adapter, task, {
+      cwd: r.workspace?.path,
+      maxCostUsd: options.maxCostPerTierUsd,
+    });
     r.proc = pm.get(r.sessionId);
     if (r.proc) {
       r.streamPromise = streamOutput(r.proc, (chunk) =>
@@ -246,16 +344,17 @@ export async function raceUntilPass(
     const r = finished.runner;
     const cost = r.proc ? extractCost(r.proc) : 0;
     const durationMs = Date.now() - r.started;
-    let verdict: "pass" | "fail" = finished.exitCode === 0 ? "pass" : "fail";
+    const hardStopped = r.sessionId ? pm.wasHardStopped(r.sessionId) : false;
+    let abortedReason = "abortedReason" in finished ? finished.abortedReason : undefined;
+    if (hardStopped && !abortedReason) {
+      abortedReason = `cost cap reached ($${options.maxCostPerTierUsd?.toFixed(2)})`;
+    }
+    let verdict: "pass" | "fail" = finished.exitCode === 0 && !abortedReason ? "pass" : "fail";
     let proof: VerificationProof | undefined;
 
-    if (
-      !("abortedReason" in finished && finished.abortedReason) &&
-      !options.skipVerify &&
-      finished.exitCode === 0
-    ) {
+    if (!abortedReason && !options.skipVerify && finished.exitCode === 0) {
       proof = verifySolution({
-        cwd,
+        cwd: r.workspace?.path ?? cwd,
         task,
         runTests: options.verifyOverrides?.runTests,
         runLint: options.verifyOverrides?.runLint,
@@ -273,7 +372,9 @@ export async function raceUntilPass(
       durationMs,
       verdict,
       proof,
-      abortedReason: "abortedReason" in finished ? finished.abortedReason : undefined,
+      abortedReason,
+      worktreePath: r.workspace?.path,
+      hardStopped,
     };
     options.onTierEnd?.(r.finished);
 
@@ -295,6 +396,7 @@ export async function raceUntilPass(
             durationMs: Date.now() - other.started,
             verdict: "fail",
             abortedReason: "cancelled — sibling won the race",
+            worktreePath: other.workspace?.path,
           };
           options.onTierEnd?.(other.finished);
         })
@@ -306,6 +408,21 @@ export async function raceUntilPass(
   // Drain any remaining streams (best-effort).
   await Promise.allSettled(
     runners.map((r) => r.streamPromise ?? Promise.resolve())
+  );
+
+  // Promote winner's diff back into the caller's tree, then clean up.
+  if (winner && options.isolate) {
+    const winnerRunner = runners.find((r) => r.finished === winner);
+    if (winnerRunner?.workspace) {
+      try {
+        await applyWorktreeDiff(winnerRunner.workspace.path, cwd);
+      } catch (err) {
+        winner.abortedReason = `winner patch did not apply cleanly: ${err instanceof Error ? err.message : err}`;
+      }
+    }
+  }
+  await cleanupWorktrees(
+    runners.map((r) => r.workspace).filter((w): w is AllocatedWorktree => Boolean(w))
   );
 
   const attempts = runners

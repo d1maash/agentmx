@@ -40,6 +40,26 @@ export const ConfigSchema = z.object({
       split_view: z.enum(["vertical", "horizontal"]).default("vertical"),
     })
     .default({}),
+  /**
+   * Parallel-run safety. When isolate=true, vote/optimize/run -p each get
+   * their own git worktree instead of racing for the same checkout.
+   */
+  parallel: z
+    .object({
+      isolate: z.boolean().default(false),
+      keep_worktrees: z.boolean().default(false),
+    })
+    .default({}),
+  /**
+   * Hard-stop limits. Unlike the post-hoc alerts in `costs`, these kill the
+   * process the moment the cap is reached.
+   */
+  budgets: z
+    .object({
+      /** USD cap per agent run. Overridable on the CLI via --max-cost. */
+      hard_stop_per_run: z.number().positive().optional(),
+    })
+    .default({}),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

@@ -4,10 +4,23 @@ import { createAdapters } from "../../adapters/factory.js";
 import type { Config } from "../../config/schema.js";
 import chalk from "chalk";
 
+function parseMaxCost(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`--max-cost must be a positive number; got "${raw}"`);
+  }
+  return n;
+}
+
 interface VoteOptions {
   agents?: string;
   judge?: string;
   strategy?: string;
+  isolate?: boolean;
+  applyWinner?: boolean;
+  keepWorktrees?: boolean;
+  maxCost?: string;
 }
 
 export async function voteCommand(
@@ -68,11 +81,16 @@ export async function voteCommand(
     return;
   }
 
+  const isolate = options.isolate ?? config.parallel.isolate;
+  const maxCostUsd = parseMaxCost(options.maxCost) ?? config.budgets.hard_stop_per_run;
+
   console.log(chalk.bold("\nVoting Session"));
   console.log(chalk.dim(`  Task: "${task}"`));
   console.log(chalk.dim(`  Agents: ${agentNames.join(", ")}`));
   console.log(chalk.dim(`  Judge: ${judgeAgent}`));
   console.log(chalk.dim(`  Strategy: ${strategy}`));
+  if (isolate) console.log(chalk.dim(`  Isolation: per-candidate git worktree`));
+  if (maxCostUsd) console.log(chalk.dim(`  Hard-stop: $${maxCostUsd.toFixed(2)} per candidate`));
   console.log();
 
   const voting = new VotingSession(
@@ -83,9 +101,23 @@ export async function voteCommand(
     adapters
   );
 
+  pm.on("budget:hardstop", (info: { agent: string; cost: number; cap: number }) => {
+    console.log(
+      chalk.red(
+        `\n[budget] ${info.agent} killed — cost $${info.cost.toFixed(4)} ≥ cap $${info.cap.toFixed(2)}\n`
+      )
+    );
+  });
+
   try {
     let currentPhase = "";
-    for await (const event of voting.execute(task)) {
+    for await (const event of voting.execute(task, {
+      isolate,
+      cwd: process.cwd(),
+      applyWinner: options.applyWinner,
+      maxCostPerCandidateUsd: maxCostUsd,
+      keepWorktrees: options.keepWorktrees,
+    })) {
       if (event.phase !== currentPhase) {
         currentPhase = event.phase;
         if (event.phase === "collecting") {
@@ -148,6 +180,11 @@ export async function voteCommand(
           console.log(
             chalk.bold.green(`\n  Winner: ${r.winnerAgent}`)
           );
+          if (r.winnerWorktreePath) {
+            console.log(
+              chalk.dim(`    Workspace: ${r.winnerWorktreePath}${r.winnerApplied ? " (diff applied to cwd)" : ""}`)
+            );
+          }
         }
 
         console.log();

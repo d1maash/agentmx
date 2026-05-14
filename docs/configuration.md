@@ -51,6 +51,18 @@ router:
 ui:
   theme: dark
   split_view: vertical   # vertical | horizontal
+
+# Allocate a git worktree per agent in vote/optimize/run -p flows so siblings
+# never race for the working tree. Off by default; opt in here or per-command.
+parallel:
+  isolate: false
+  keep_worktrees: false
+
+# Hard cost guard. When an agent's reported total spend crosses this cap, the
+# process is killed and the run exits with code 2 in `amx ci`. Override on the
+# CLI with --max-cost.
+budgets:
+  hard_stop_per_run: 1.00
 ```
 
 ### Alternative Formats

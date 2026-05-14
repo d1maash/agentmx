@@ -136,6 +136,44 @@ Re-run the same AI task whenever project files change.
 <tr>
 <td width="50%" valign="top">
 
+### Verified solve
+
+```bash
+amx solve "fix the failing auth test"
+```
+
+Runs an agent, then verifies the patch with diff, tests, lint, and typecheck — and writes a proof artifact.
+
+</td>
+<td width="50%" valign="top">
+
+### PR factory
+
+```bash
+amx pr-factory 142 \
+  --coder codex \
+  --reviewer claude-code
+```
+
+Issue → code → tests → PR → review → CI, end-to-end, via the GitHub CLI.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Cost optimizer
+
+```bash
+amx optimize "ship the parser fix" \
+  --tiers codex,claude-code
+```
+
+Try the cheapest agent first, escalate only if verification fails. Reports cost-per-passing-PR.
+
+</td>
+<td width="50%" valign="top">
+
 ### Analytics & budgets
 
 ```bash
@@ -147,6 +185,8 @@ amx quality
 Track usage, set budget alerts, score repo quality.
 
 </td>
+</tr>
+<tr>
 <td width="50%" valign="top">
 
 ### Web dashboard
@@ -156,6 +196,45 @@ amx dashboard
 ```
 
 Open a browser-based analytics dashboard with interactive Chart.js charts — costs, success rates, daily trends, and more.
+
+</td>
+<td width="50%" valign="top">
+
+### CI mode
+
+```bash
+amx ci solve "fix the failing parser test" \
+  --agent codex --max-cost 0.50 \
+  --timeout 600 --report amx.json
+```
+
+Non-interactive wrappers (`ci run | solve | optimize | vote`) for GitHub Actions / Jenkins. Single JSON report, optional NDJSON event stream, and deterministic exit codes: `0` ok · `1` fail · `2` budget · `3` timeout · `4` usage.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Worktree isolation
+
+```bash
+amx vote "implement retry" --isolate --apply-winner
+amx optimize "ship the patch" --race --isolate
+```
+
+Each candidate / tier runs in its own `git worktree` so siblings never race for the working tree. The winner's diff is applied back automatically.
+
+</td>
+<td width="50%" valign="top">
+
+### Hard-stop budgets
+
+```bash
+amx solve "refactor the cache layer" --max-cost 0.25
+amx pr-factory 142 --max-cost 1.00
+```
+
+`--max-cost <usd>` kills the agent the moment its reported spend crosses the cap — not a post-hoc alert. Configurable globally via `budgets.hard_stop_per_run`.
 
 </td>
 </tr>
@@ -172,8 +251,14 @@ Open a browser-based analytics dashboard with interactive Chart.js charts — co
  Review Pipeline     Coder → Reviewer → Tester workflow
  Shared Context      Agents share structured working state
  Watch Mode          Re-run the same task automatically on file changes
+ Verified Solve      Run an agent and prove the patch with tests + lint + typecheck
+ PR Factory          Issue → code → tests → PR → review → CI in one command
+ Cost Optimizer      Cheap-first escalation or race-to-pass to minimize spend
+ Worktree Isolation  Per-agent git worktree for parallel runs; winner diff auto-applied
+ Hard-Stop Budgets   --max-cost kills the agent the moment spend crosses the cap
+ CI Mode             amx ci subcommands: JSON reports + deterministic exit codes
  Sessions            Save, list, delete, and resume previous work
- Analytics           Usage stats, per-agent costs, budget alerts
+ Analytics           Usage stats, per-agent costs, cost-per-pass, budget alerts
  Web Dashboard      Browser-based charts and tables via Chart.js
  Quality Scoring     Lint, test, and complexity analysis
  Benchmarks          Curated suites with Markdown reports

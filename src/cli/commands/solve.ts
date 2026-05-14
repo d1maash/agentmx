@@ -25,6 +25,8 @@ export interface SolveOptions {
   verifyOnly?: boolean;
   /** Per-check timeout (ms). */
   timeout?: string;
+  /** Hard cost cap (USD). When reached the agent is killed and verify still runs. */
+  maxCost?: string;
 }
 
 function isGitRepo(cwd: string): boolean {
@@ -102,7 +104,16 @@ export async function solveCommand(
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
 
-  const sessionId = await pm.start(adapter, task, { cwd });
+  const maxCostUsd = parseMaxCost(options.maxCost) ?? config.budgets.hard_stop_per_run;
+  if (maxCostUsd) {
+    pm.on("budget:hardstop", (info: { cost: number; cap: number }) => {
+      console.log(
+        chalk.red(`\n[budget] hard-stop hit — cost $${info.cost.toFixed(4)} ≥ cap $${info.cap.toFixed(2)}\n`)
+      );
+    });
+  }
+
+  const sessionId = await pm.start(adapter, task, { cwd, maxCostUsd });
   const proc = pm.get(sessionId);
   if (!proc) {
     console.error(chalk.red(`Failed to start ${adapter.info.name}.`));
@@ -125,6 +136,15 @@ export async function solveCommand(
   }
 
   await runVerification(task, options, cwd);
+}
+
+function parseMaxCost(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`--max-cost must be a positive number; got "${raw}"`);
+  }
+  return n;
 }
 
 function pickAgent(

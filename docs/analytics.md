@@ -44,6 +44,17 @@ amx costs --set-budget claude-code --daily 5 --weekly 20 --monthly 60 --total 20
 amx costs --set-global-budget --daily 10 --weekly 50 --monthly 200
 ```
 
+### Cost-per-Pass
+
+The `amx costs` table shows two outcome-aware columns alongside raw spend:
+
+| Column | Meaning |
+|--------|---------|
+| `✓/Session` | Successful sessions over total sessions for that agent |
+| `Cost/Pass` | Total spend divided by successful sessions — what one passing run actually costs you |
+
+Cost-per-pass is the comparison metric to use when a cheaper agent fails verification often enough that it would have been cheaper to start with the expensive one. `amx optimize` is built on top of the same idea — see [Orchestration → Cost Optimizer](orchestration.md#cost-optimizer).
+
 ### Budget Scopes
 
 | Scope | Limits |

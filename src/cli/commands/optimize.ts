@@ -21,6 +21,12 @@ export interface OptimizeOptions {
   timeout?: string;
   /** Skip lint during verification (tests only). */
   testsOnly?: boolean;
+  /** Allocate a fresh git worktree per tier. */
+  isolate?: boolean;
+  /** Keep worktrees on disk after the run. */
+  keepWorktrees?: boolean;
+  /** Hard cost cap per tier (USD). */
+  maxCost?: string;
 }
 
 const DEFAULT_TIERS: { agent: string; label: string }[] = [
@@ -61,6 +67,8 @@ export async function optimizeCommand(
   }
 
   const mode: "race" | "escalate" = options.race ? "race" : "escalate";
+  const isolate = options.isolate ?? config.parallel.isolate;
+  const maxCostUsd = parseMaxCost(options.maxCost) ?? config.budgets.hard_stop_per_run;
 
   console.log(chalk.bold.underline("\nAgentMX Cost Optimizer"));
   console.log(chalk.dim(`  Mode:  ${mode}`));
@@ -72,7 +80,15 @@ export async function optimizeCommand(
         .join(" → ")}`
     )
   );
+  if (isolate) console.log(chalk.dim(`  Isolation: per-tier git worktree`));
+  if (maxCostUsd) console.log(chalk.dim(`  Hard-stop: $${maxCostUsd.toFixed(2)} per tier`));
   console.log();
+
+  pm.on("budget:hardstop", (info: { agent: string; cost: number; cap: number }) => {
+    console.log(
+      chalk.red(`[budget] ${info.agent} killed — cost $${info.cost.toFixed(4)} ≥ cap $${info.cap.toFixed(2)}`)
+    );
+  });
 
   const verifyOverrides = options.testsOnly
     ? { runLint: false, runTypecheck: false }
@@ -120,6 +136,9 @@ export async function optimizeCommand(
     onTierStart,
     onTierEnd,
     onOutput,
+    isolate,
+    keepWorktrees: options.keepWorktrees,
+    maxCostPerTierUsd: maxCostUsd,
   });
 
   await pm.stopAll();
@@ -202,6 +221,15 @@ function formatCost(cost: number): string {
   if (cost === 0) return "$0.00";
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
+}
+
+function parseMaxCost(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`--max-cost must be a positive number; got "${raw}"`);
+  }
+  return n;
 }
 
 function formatDuration(ms: number): string {

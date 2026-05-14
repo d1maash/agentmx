@@ -1,8 +1,26 @@
 import { EventEmitter } from "node:events";
 import type { AgentAdapter, AgentOutput } from "../adapters/types.js";
 import type { ProcessManager } from "./process-manager.js";
+import {
+  allocateWorktree,
+  applyWorktreeDiff,
+  type AllocatedWorktree,
+} from "./worktree.js";
 
 export type VotingStrategy = "best" | "merge";
+
+export interface VotingExecuteOptions {
+  /** Allocate one git worktree per candidate so siblings don't fight over the tree. */
+  isolate?: boolean;
+  /** Working directory of the host repo — needed when isolate=true. */
+  cwd?: string;
+  /** Apply the winning candidate's diff back into cwd. Requires isolate=true. */
+  applyWinner?: boolean;
+  /** Hard cost cap (USD) per candidate run. */
+  maxCostPerCandidateUsd?: number;
+  /** Keep worktrees on disk after the vote (debug). */
+  keepWorktrees?: boolean;
+}
 
 export interface VotingCandidate {
   agent: string;
@@ -22,6 +40,10 @@ export interface VotingResult {
   /** Name of the winning agent */
   winnerAgent?: string;
   judgeDurationMs: number;
+  /** Path of the winner's worktree (when isolate=true). */
+  winnerWorktreePath?: string;
+  /** True when winner's diff was applied back into cwd. */
+  winnerApplied?: boolean;
 }
 
 export interface VotingOutput {
@@ -48,7 +70,10 @@ export class VotingSession extends EventEmitter {
     super();
   }
 
-  async *execute(task: string): AsyncGenerator<VotingOutput> {
+  async *execute(
+    task: string,
+    execOpts: VotingExecuteOptions = {}
+  ): AsyncGenerator<VotingOutput> {
     // Validate all agents exist
     for (const name of this.agents) {
       if (!this.adapters.has(name)) {
@@ -65,11 +90,30 @@ export class VotingSession extends EventEmitter {
 
     const sessionIds = new Map<string, string>();
     const startTimes = new Map<string, number>();
+    const worktrees = new Map<string, AllocatedWorktree>();
+    const hostCwd = execOpts.cwd ?? process.cwd();
 
-    for (const name of this.agents) {
+    try {
+      if (execOpts.isolate) {
+        for (const name of this.agents) {
+          try {
+            const wt = await allocateWorktree(hostCwd, { label: name, keepOnCleanup: execOpts.keepWorktrees });
+            worktrees.set(name, wt);
+          } catch (err) {
+            // Roll back any partial allocations before bubbling.
+            await Promise.allSettled(Array.from(worktrees.values()).map((w) => w.cleanup()));
+            throw err;
+          }
+        }
+      }
+
+      for (const name of this.agents) {
       const adapter = this.adapters.get(name)!;
       startTimes.set(name, Date.now());
-      const sessionId = await this.processManager.start(adapter, task);
+      const sessionId = await this.processManager.start(adapter, task, {
+        cwd: worktrees.get(name)?.path,
+        maxCostUsd: execOpts.maxCostPerCandidateUsd,
+      });
       sessionIds.set(name, sessionId);
     }
 
@@ -164,6 +208,22 @@ export class VotingSession extends EventEmitter {
       candidates
     );
 
+    let winnerWorktreePath: string | undefined;
+    let winnerApplied = false;
+    if (execOpts.isolate && winnerAgent) {
+      const wt = worktrees.get(winnerAgent);
+      if (wt) {
+        winnerWorktreePath = wt.path;
+        if (execOpts.applyWinner) {
+          try {
+            winnerApplied = await applyWorktreeDiff(wt.path, hostCwd);
+          } catch {
+            winnerApplied = false;
+          }
+        }
+      }
+    }
+
     const result: VotingResult = {
       strategy: this.strategy,
       candidates,
@@ -171,9 +231,14 @@ export class VotingSession extends EventEmitter {
       winnerIndex,
       winnerAgent,
       judgeDurationMs,
+      winnerWorktreePath,
+      winnerApplied,
     };
 
-    yield { phase: "done", result };
+      yield { phase: "done", result };
+    } finally {
+      await Promise.allSettled(Array.from(worktrees.values()).map((w) => w.cleanup()));
+    }
   }
 
   private buildJudgePrompt(

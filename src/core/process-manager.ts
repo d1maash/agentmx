@@ -2,10 +2,17 @@ import type { AgentAdapter, AgentProcess, AgentStatus, SpawnOptions } from "../a
 import { type Session, createSessionId, getSessionSummary } from "./session.js";
 import { saveSession } from "./session-store.js";
 import { checkBudgets } from "./cost-tracker.js";
+import { attachBudgetGuard, type BudgetGuardHandle } from "./budget-guard.js";
 import { EventEmitter } from "node:events";
+
+export interface StartOptions extends SpawnOptions {
+  /** Hard cap (USD). When the agent's reported cost crosses it, the process is killed. */
+  maxCostUsd?: number;
+}
 
 export class ProcessManager extends EventEmitter {
   private sessions: Map<string, Session> = new Map();
+  private guards: Map<string, BudgetGuardHandle> = new Map();
   private cwd: string;
 
   constructor(cwd?: string) {
@@ -17,7 +24,7 @@ export class ProcessManager extends EventEmitter {
   async start(
     adapter: AgentAdapter,
     task: string,
-    opts?: SpawnOptions
+    opts?: StartOptions
   ): Promise<string> {
     // Check budget alerts before starting
     const alerts = checkBudgets();
@@ -30,7 +37,8 @@ export class ProcessManager extends EventEmitter {
     }
 
     const id = createSessionId();
-    const agentProcess = adapter.spawn(task, opts);
+    const { maxCostUsd, ...spawnOpts } = opts ?? {};
+    const agentProcess = adapter.spawn(task, spawnOpts);
 
     const session: Session = {
       id,
@@ -43,8 +51,19 @@ export class ProcessManager extends EventEmitter {
     this.sessions.set(id, session);
     this.emit("session:start", session);
 
+    if (maxCostUsd && maxCostUsd > 0) {
+      const guard = attachBudgetGuard(agentProcess, {
+        maxCostUsd,
+        onBreach: (cost, cap) => {
+          this.emit("budget:hardstop", { sessionId: id, agent: adapter.info.name, cost, cap });
+        },
+      });
+      this.guards.set(id, guard);
+    }
+
     // Listen for process completion — auto-save session
     agentProcess.done.then(({ exitCode }) => {
+      this.guards.get(id)?.stop();
       // Only save sessions with actual output
       if (session.process.buffer.length > 0) {
         try {
@@ -57,6 +76,11 @@ export class ProcessManager extends EventEmitter {
     });
 
     return id;
+  }
+
+  /** True when this session was killed by a hard-stop budget guard. */
+  wasHardStopped(sessionId: string): boolean {
+    return this.guards.get(sessionId)?.breached ?? false;
   }
 
   /** Get process by session ID */
@@ -97,6 +121,8 @@ export class ProcessManager extends EventEmitter {
   async stop(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (session) {
+      this.guards.get(sessionId)?.stop();
+      this.guards.delete(sessionId);
       await session.process.kill();
       this.sessions.delete(sessionId);
       this.emit("session:stop", session);

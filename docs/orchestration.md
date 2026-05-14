@@ -12,6 +12,9 @@ AgentMX provides several ways to coordinate multiple agents beyond simple single
 | Consensus / judging | `amx vote` | Best-of-N or merged answers |
 | Code review | `amx review` | Implementation + review + tests |
 | Shared context | `amx share` | Collaborative investigation |
+| Verified solve | `amx solve` | Run-then-verify with a proof artifact |
+| PR factory | `amx pr-factory` | Issue → code → tests → PR → review → CI |
+| Cost optimizer | `amx optimize` | Cheap-first escalation or race-to-pass |
 | Benchmarking | `amx bench` | Objective single-task comparison |
 | Verified suites | `amx bench suite` | Repeatable benchmark runs with reports |
 
@@ -159,6 +162,67 @@ amx share "investigate the flaky CI failure" --agents claude-code,codex
 - Requires at least two agents
 
 This mode keeps a common working memory instead of mirroring the full transcript. Best for collaborative investigation and debugging where agents should converge on the same facts and decisions.
+
+## Verified Solve
+
+`amx solve` couples an agent run with an objective verification stage so you can prove a patch is good — not just that it looks good.
+
+```bash
+amx solve "fix the failing auth integration test"
+```
+
+After the agent finishes, AgentMX runs a `VerificationProof` over the working tree:
+
+| Check | Source |
+|-------|--------|
+| Diff | `git diff HEAD` — files changed, +/- lines |
+| Tests | First detected runner (vitest, jest, pytest, go test, npm test) |
+| Lint | `biome` or `eslint` if present |
+| Typecheck | `tsc --noEmit` for TypeScript projects |
+| Compliance | Heuristic check that the diff matches the task description |
+
+Each check reports a `pass` / `fail` / `skip` verdict and a 0–100 weighted score. The proof is written to `.agentmx/last-proof.json` (and a human-readable `.md`), and the captured patch goes to `.agentmx/last.patch`.
+
+Use `--verify-only` to score a working tree you already produced by hand, or pass `--no-tests`, `--no-lint`, `--no-typecheck` to scope the verification.
+
+## PR Factory
+
+`amx pr-factory` automates the full GitHub workflow from a tracked issue to a reviewed pull request.
+
+```bash
+amx pr-factory 142 \
+  --coder codex \
+  --reviewer claude-code \
+  --tester aider
+```
+
+Stages run in order, streaming output and per-stage timing:
+
+1. **Issue** — fetch the issue body via `gh`
+2. **Coder** — agent writes the implementation
+3. **Tester** — second agent adds tests (skip with `--no-tester`)
+4. **Git** — commit and push to a generated branch
+5. **PR** — open the pull request (`--draft` supported)
+6. **Reviewer** — third agent posts a structured review on the PR
+7. **CI** — watch checks; if they fail and `--ci-rounds` allows, rerun the coder with failing logs as context
+
+Requires `gh` installed and authenticated. Multi-agent role assignment falls back to `default_agent` when fewer than three agents are enabled.
+
+## Cost Optimizer
+
+`amx optimize` minimizes the cost of producing a verified patch. Cheap agents go first; expensive agents only run if cheap ones fail verification.
+
+```bash
+amx optimize "patch the failing parser test" \
+  --tiers codex,aider,claude-code
+```
+
+| Strategy | When to use |
+|----------|-------------|
+| `escalate` (default) | Sequential cheap → expensive; lowest spend on average |
+| `--race` | Parallel run; cancel siblings on first verified pass; lowest wall-clock |
+
+The summary reports the **cost of a successful PR** — including any spend on cheaper tiers that failed before the winning attempt — so you can compare strategies on dollars-per-passed-task rather than on raw spend.
 
 ## Benchmarking
 

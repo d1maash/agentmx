@@ -56,4 +56,9 @@ export const DEFAULT_CONFIG: Config = {
     show_cost: false,
     split_view: "vertical",
   },
+  parallel: {
+    isolate: false,
+    keep_worktrees: false,
+  },
+  budgets: {},
 };
