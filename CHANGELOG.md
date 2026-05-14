@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-05-14
+
 ### Added
 
 - **`amx ci` non-interactive command tree** for use in GitHub Actions / Jenkins / etc.
@@ -25,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   killed the moment its reported total spend crosses the cap. Config:
   `budgets.hard_stop_per_run`. `ProcessManager` now emits
   `budget:hardstop` and exposes `wasHardStopped(sessionId)`.
+
+## [0.10.0] - 2026-04-29
+
+### Added
+
 - `watch` command to rerun an AI task automatically when workspace files change
 - New built-in adapters: `gemini`, `copilot`, `cursor`, `goose`
 - New CLI commands:
