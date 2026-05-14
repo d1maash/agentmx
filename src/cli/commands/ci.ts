@@ -153,7 +153,7 @@ export async function ciRunCommand(
         },
         options
       );
-      process.exit(CI_EXIT.USAGE);
+      exitWith(CI_EXIT.USAGE);
     }
 
     const pm = new ProcessManager(process.cwd());
@@ -195,10 +195,11 @@ export async function ciRunCommand(
     writeReport(report, options);
     emitEvent(options, "run.end", report);
 
-    if (timedOut) process.exit(CI_EXIT.TIMEOUT);
-    if (budgetBreach) process.exit(CI_EXIT.BUDGET);
-    process.exit(exitCode === 0 ? CI_EXIT.OK : CI_EXIT.FAILURE);
+    if (timedOut) exitWith(CI_EXIT.TIMEOUT);
+    if (budgetBreach) exitWith(CI_EXIT.BUDGET);
+    exitWith(exitCode === 0 ? CI_EXIT.OK : CI_EXIT.FAILURE);
   } catch (err) {
+    if (err instanceof CiExitSignal) process.exit(err.code);
     writeReport(
       { command: "ci run", ok: false, error: err instanceof Error ? err.message : String(err) },
       options
@@ -233,7 +234,7 @@ export async function ciSolveCommand(
     const adapter = agentName ? adapters.get(agentName) : undefined;
     if (!adapter) {
       writeReport({ command: "ci solve", ok: false, reason: "no usable agent" }, options);
-      process.exit(CI_EXIT.USAGE);
+      exitWith(CI_EXIT.USAGE);
     }
 
     const cwd = process.cwd();
@@ -284,10 +285,11 @@ export async function ciSolveCommand(
     writeReport(report, options);
     emitEvent(options, "solve.end", { ok, verdict: proof.verdict });
 
-    if (timedOut) process.exit(CI_EXIT.TIMEOUT);
-    if (budgetBreach) process.exit(CI_EXIT.BUDGET);
-    process.exit(ok ? CI_EXIT.OK : CI_EXIT.FAILURE);
+    if (timedOut) exitWith(CI_EXIT.TIMEOUT);
+    if (budgetBreach) exitWith(CI_EXIT.BUDGET);
+    exitWith(ok ? CI_EXIT.OK : CI_EXIT.FAILURE);
   } catch (err) {
+    if (err instanceof CiExitSignal) process.exit(err.code);
     writeReport(
       { command: "ci solve", ok: false, error: err instanceof Error ? err.message : String(err) },
       options
@@ -337,7 +339,7 @@ export async function ciOptimizeCommand(
 
     if (tiers.length === 0) {
       writeReport({ command: "ci optimize", ok: false, reason: "no usable tiers" }, options);
-      process.exit(CI_EXIT.USAGE);
+      exitWith(CI_EXIT.USAGE);
     }
 
     const pm = new ProcessManager(process.cwd());
@@ -401,10 +403,11 @@ export async function ciOptimizeCommand(
     };
     writeReport(report, options);
 
-    if (timedOut) process.exit(CI_EXIT.TIMEOUT);
-    if (!ok && anyHardStop && !outcome?.success) process.exit(CI_EXIT.BUDGET);
-    process.exit(ok ? CI_EXIT.OK : CI_EXIT.FAILURE);
+    if (timedOut) exitWith(CI_EXIT.TIMEOUT);
+    if (!ok && anyHardStop && !outcome?.success) exitWith(CI_EXIT.BUDGET);
+    exitWith(ok ? CI_EXIT.OK : CI_EXIT.FAILURE);
   } catch (err) {
+    if (err instanceof CiExitSignal) process.exit(err.code);
     writeReport(
       { command: "ci optimize", ok: false, error: err instanceof Error ? err.message : String(err) },
       options
@@ -445,12 +448,12 @@ export async function ciVoteCommand(
           { command: "ci vote", ok: false, reason: `unknown agent "${name}"` },
           options
         );
-        process.exit(CI_EXIT.USAGE);
+        exitWith(CI_EXIT.USAGE);
       }
     }
     if (agentNames.length < 2) {
       writeReport({ command: "ci vote", ok: false, reason: "need ≥ 2 agents" }, options);
-      process.exit(CI_EXIT.USAGE);
+      exitWith(CI_EXIT.USAGE);
     }
     const judge = options.judge ?? agentNames[0];
     const strategy = (options.strategy ?? "best") as VotingStrategy;
@@ -505,9 +508,10 @@ export async function ciVoteCommand(
       })),
     };
     writeReport(report, options);
-    if (timedOut) process.exit(CI_EXIT.TIMEOUT);
-    process.exit(ok ? CI_EXIT.OK : CI_EXIT.FAILURE);
+    if (timedOut) exitWith(CI_EXIT.TIMEOUT);
+    exitWith(ok ? CI_EXIT.OK : CI_EXIT.FAILURE);
   } catch (err) {
+    if (err instanceof CiExitSignal) process.exit(err.code);
     writeReport(
       { command: "ci vote", ok: false, error: err instanceof Error ? err.message : String(err) },
       options
