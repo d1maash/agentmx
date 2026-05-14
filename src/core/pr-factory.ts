@@ -177,6 +177,9 @@ INSTRUCTIONS:
  * collects a review, and optionally fixes CI failures.
  */
 export class PRFactory {
+  /** Optional USD cap applied per agent stage. Killed agents fail their stage. */
+  maxCostPerStageUsd?: number;
+
   constructor(
     private roles: PRFactoryRoles,
     private processManager: ProcessManager,
@@ -431,7 +434,9 @@ export class PRFactory {
   ): AsyncGenerator<PRFactoryEvent, PRFactoryStageResult> {
     const adapter = this.adapters.get(agentName)!;
     const start = Date.now();
-    const sessionId = await this.processManager.start(adapter, prompt);
+    const sessionId = await this.processManager.start(adapter, prompt, {
+      maxCostUsd: this.maxCostPerStageUsd,
+    });
     const proc = this.processManager.get(sessionId);
     if (!proc) throw new Error(`Failed to start ${agentName} for ${stage} stage`);
 

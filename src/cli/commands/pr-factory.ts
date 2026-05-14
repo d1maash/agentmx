@@ -42,6 +42,8 @@ export interface PRFactoryCliOptions {
   noCi?: boolean;
   ciTimeout?: string;
   ciRounds?: string;
+  /** Hard cost cap per stage in USD. Stage agent is killed if reached. */
+  maxCost?: string;
 }
 
 export async function prFactoryCommand(
