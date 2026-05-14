@@ -208,6 +208,22 @@ export class VotingSession extends EventEmitter {
       candidates
     );
 
+    let winnerWorktreePath: string | undefined;
+    let winnerApplied = false;
+    if (execOpts.isolate && winnerAgent) {
+      const wt = worktrees.get(winnerAgent);
+      if (wt) {
+        winnerWorktreePath = wt.path;
+        if (execOpts.applyWinner) {
+          try {
+            winnerApplied = await applyWorktreeDiff(wt.path, hostCwd);
+          } catch {
+            winnerApplied = false;
+          }
+        }
+      }
+    }
+
     const result: VotingResult = {
       strategy: this.strategy,
       candidates,
@@ -215,9 +231,14 @@ export class VotingSession extends EventEmitter {
       winnerIndex,
       winnerAgent,
       judgeDurationMs,
+      winnerWorktreePath,
+      winnerApplied,
     };
 
-    yield { phase: "done", result };
+      yield { phase: "done", result };
+    } finally {
+      await Promise.allSettled(Array.from(worktrees.values()).map((w) => w.cleanup()));
+    }
   }
 
   private buildJudgePrompt(
