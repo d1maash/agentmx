@@ -4,6 +4,15 @@ import { createAdapters } from "../../adapters/factory.js";
 import type { Config } from "../../config/schema.js";
 import chalk from "chalk";
 
+function parseMaxCost(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`--max-cost must be a positive number; got "${raw}"`);
+  }
+  return n;
+}
+
 interface VoteOptions {
   agents?: string;
   judge?: string;
@@ -171,6 +180,11 @@ export async function voteCommand(
           console.log(
             chalk.bold.green(`\n  Winner: ${r.winnerAgent}`)
           );
+          if (r.winnerWorktreePath) {
+            console.log(
+              chalk.dim(`    Workspace: ${r.winnerWorktreePath}${r.winnerApplied ? " (diff applied to cwd)" : ""}`)
+            );
+          }
         }
 
         console.log();
