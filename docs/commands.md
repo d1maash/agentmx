@@ -157,6 +157,10 @@ Run the same task on multiple agents, then ask a judge to evaluate results.
 | `-a, --agents <list>` | Comma-separated agents. Defaults to all enabled. |
 | `-j, --judge <agent>` | Judge agent. Defaults to first in the list. |
 | `-s, --strategy <type>` | `best` or `merge`. Default is `best`. |
+| `--isolate` / `--no-isolate` | Allocate one git worktree per candidate so they don't fight over the same checkout. |
+| `--apply-winner` | After the judge picks a winner, copy that candidate's diff back into the host tree. Requires `--isolate`. |
+| `--keep-worktrees` | Skip cleanup of per-candidate worktrees. |
+| `--max-cost <usd>` | Hard kill any candidate whose reported cost crosses this USD value. |
 
 **How it works:**
 1. Phase 1 collects candidate responses from all agents
@@ -303,6 +307,9 @@ Cost-aware orchestration. Run cheap agents first; only escalate to expensive age
 | `--no-verify` | Skip verification — use raw exit codes for success detection. |
 | `--tests-only` | Only run tests during verification (skip lint/typecheck). |
 | `--timeout <seconds>` | Per-tier wall-clock timeout. |
+| `--isolate` / `--no-isolate` | Allocate a fresh git worktree per tier so siblings never race for the working tree. Winner's diff is applied back. |
+| `--keep-worktrees` | Keep worktrees on disk after the run (debugging). |
+| `--max-cost <usd>` | Hard cap per tier. The agent is killed the moment its reported total cost crosses this USD value. |
 
 Two modes:
 
@@ -476,3 +483,44 @@ amx init
 ```
 
 Interactive setup wizard. Detects installed agents, asks which to enable, and writes `.agentmx.yml`.
+
+## ci
+
+```bash
+amx ci <subcommand> <task> [options]
+```
+
+Non-interactive wrappers built for use inside GitHub Actions, Jenkins, or any other CI system. Each subcommand:
+
+- Disables colour output and the alternate-screen TUI so logs are diff-friendly.
+- Sets `AGENTMX_CI=1` for downstream tooling.
+- Emits a single JSON report — to stdout by default, or to `--report <path>`.
+- Optionally streams NDJSON events to stderr with `--json-events`.
+- Exits with a **deterministic** code that scripts can switch on:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Success. |
+| `1` | Agent or verification failure. |
+| `2` | Hard-stop budget was hit (`--max-cost`). |
+| `3` | Wall-clock timeout (`--timeout`). |
+| `4` | Usage / config error (unknown agent, missing tiers, etc.). |
+
+Subcommands:
+
+| Subcommand | Purpose |
+|------------|---------|
+| `amx ci run` | One agent on one task; report has `exitCode`, `durationMs`, `budgetBreach`. |
+| `amx ci solve` | Run + verify; report contains the full proof (`verdict`, `score`, per-check status, diff stats). |
+| `amx ci optimize` | Cheap-first or `--race`; report contains `winner`, `totalCost`, and per-tier attempts. |
+| `amx ci vote` | Vote across N candidates; report contains `winner` and per-candidate stats. |
+
+Example: gate a GitHub Action on a verified solve under a $0.50 budget.
+
+```yaml
+- run: amx ci solve "fix the failing parser test" \
+    --agent codex --max-cost 0.50 --timeout 600 \
+    --report amx-report.json
+- uses: actions/upload-artifact@v4
+  with: { name: amx-report, path: amx-report.json }
+```
