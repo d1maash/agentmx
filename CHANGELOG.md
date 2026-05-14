@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`amx ci` non-interactive command tree** for use in GitHub Actions / Jenkins / etc.
+  Subcommands `ci run`, `ci solve`, `ci optimize`, `ci vote` emit a single JSON
+  report (stdout or `--report`), optional NDJSON event stream via
+  `--json-events`, and exit with deterministic codes: `0` ok, `1` failure,
+  `2` budget hit, `3` timeout, `4` usage error.
+- **Worktree isolation** for parallel agent runs. `vote --isolate`,
+  `optimize --isolate`, and `ci optimize --isolate` allocate a fresh git
+  worktree per candidate/tier so siblings never race for the working tree.
+  The winning candidate's diff is applied back into the host tree (opt-in
+  via `--apply-winner` on `vote`). Config: `parallel.isolate`,
+  `parallel.keep_worktrees`. New helper module `core/worktree.ts`.
+- **Hard-stop budgets**: `--max-cost <usd>` on `run`, `solve`, `vote`,
+  `optimize`, `pr-factory`, and every `amx ci` subcommand. The agent is
+  killed the moment its reported total spend crosses the cap. Config:
+  `budgets.hard_stop_per_run`. `ProcessManager` now emits
+  `budget:hardstop` and exposes `wasHardStopped(sessionId)`.
 - `watch` command to rerun an AI task automatically when workspace files change
 - New built-in adapters: `gemini`, `copilot`, `cursor`, `goose`
 - New CLI commands:
