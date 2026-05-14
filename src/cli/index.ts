@@ -21,6 +21,12 @@ import { dashboardCommand } from "./commands/dashboard.js";
 import { solveCommand } from "./commands/solve.js";
 import { prFactoryCommand } from "./commands/pr-factory.js";
 import { optimizeCommand } from "./commands/optimize.js";
+import {
+  ciRunCommand,
+  ciSolveCommand,
+  ciOptimizeCommand,
+  ciVoteCommand,
+} from "./commands/ci.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json");
@@ -453,5 +459,119 @@ program
   .action(async () => {
     await initCommand();
   });
+
+// CI — non-interactive wrappers with deterministic exit codes and JSON reports
+const ciCmd = program
+  .command("ci")
+  .description(
+    "Non-interactive wrappers for use in GitHub Actions / Jenkins / etc. " +
+      "Exit codes: 0=ok 1=fail 2=budget 3=timeout 4=usage"
+  );
+
+ciCmd
+  .command("run <task>")
+  .description("Run a task on one agent with structured output")
+  .option("-a, --agent <name>", "Agent to use", "auto")
+  .option("--max-cost <usd>", "Hard cost cap (USD); exit 2 when crossed")
+  .option("--timeout <s>", "Wall-clock timeout in seconds; exit 3 when crossed")
+  .option("--report <path>", "Write JSON report here instead of stdout")
+  .option("--json-events", "Stream NDJSON events to stderr")
+  .action(
+    async (
+      task: string,
+      opts: { agent?: string; maxCost?: string; timeout?: string; report?: string; jsonEvents?: boolean }
+    ) => {
+      const config = await loadConfig();
+      await ciRunCommand(task, opts, config);
+    }
+  );
+
+ciCmd
+  .command("solve <task>")
+  .description("Run + verify, emit a structured proof report")
+  .option("-a, --agent <name>", "Agent to use", "auto")
+  .option("--max-cost <usd>", "Hard cost cap (USD)")
+  .option("--timeout <s>", "Wall-clock timeout in seconds")
+  .option("--report <path>", "Write JSON report here instead of stdout")
+  .option("--json-events", "Stream NDJSON events to stderr")
+  .action(
+    async (
+      task: string,
+      opts: {
+        agent?: string;
+        maxCost?: string;
+        timeout?: string;
+        report?: string;
+        jsonEvents?: boolean;
+      }
+    ) => {
+      const config = await loadConfig();
+      await ciSolveCommand(task, opts, config);
+    }
+  );
+
+ciCmd
+  .command("optimize <task>")
+  .description("Cheap-first or race optimizer with structured outcome")
+  .option("-t, --tiers <agents>", "Comma-separated agents (cheap→expensive)")
+  .option("--race", "Run all tiers in parallel; first verified pass wins")
+  .option("--tests-only", "Verification: only run tests")
+  .option("--isolate", "Allocate a git worktree per tier")
+  .option("--keep-worktrees", "Keep worktrees after the run")
+  .option("--max-cost <usd>", "Hard cost cap per tier")
+  .option("--timeout <s>", "Wall-clock timeout in seconds")
+  .option("--report <path>", "Write JSON report here instead of stdout")
+  .option("--json-events", "Stream NDJSON events to stderr")
+  .action(
+    async (
+      task: string,
+      opts: {
+        tiers?: string;
+        race?: boolean;
+        testsOnly?: boolean;
+        isolate?: boolean;
+        keepWorktrees?: boolean;
+        maxCost?: string;
+        timeout?: string;
+        report?: string;
+        jsonEvents?: boolean;
+      }
+    ) => {
+      const config = await loadConfig();
+      await ciOptimizeCommand(task, opts, config);
+    }
+  );
+
+ciCmd
+  .command("vote <task>")
+  .description("Run task on N agents and pick a winner — emit a JSON report")
+  .option("-a, --agents <list>", "Agents (comma-separated)")
+  .option("-j, --judge <agent>", "Judge agent")
+  .option("-s, --strategy <s>", '"best" or "merge"', "best")
+  .option("--isolate", "One worktree per candidate")
+  .option("--apply-winner", "Apply the winner's diff back into cwd")
+  .option("--max-cost <usd>", "Hard cost cap per candidate")
+  .option("--timeout <s>", "Wall-clock timeout in seconds")
+  .option("--report <path>", "Write JSON report here instead of stdout")
+  .option("--json-events", "Stream NDJSON events to stderr")
+  .action(
+    async (
+      task: string,
+      opts: {
+        agents?: string;
+        judge?: string;
+        strategy?: string;
+        isolate?: boolean;
+        applyWinner?: boolean;
+        maxCost?: string;
+        timeout?: string;
+        report?: string;
+        jsonEvents?: boolean;
+      }
+    ) => {
+      const config = await loadConfig();
+      await ciVoteCommand(task, opts, config);
+    }
+  );
 
 program.parse();

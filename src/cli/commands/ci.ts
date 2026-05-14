@@ -500,14 +500,3 @@ export async function ciVoteCommand(
   }
 }
 
-// Re-export so the index can import a single type if needed.
-export type GetResult = NonNullable<Awaited<ReturnType<typeof getResult>>>;
-
-// Helper purely so the TS narrowing above works; never invoked.
-async function getResult(): Promise<
-  Parameters<NonNullable<VotingSession["execute"] extends (...args: infer _) => AsyncGenerator<infer Y> ? () => void : never>>[0] extends never
-    ? never
-    : never
-> {
-  throw new Error("internal");
-}
